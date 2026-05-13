@@ -8,6 +8,7 @@
   },
   "files": [
     "dist",
+    "src",
     "LICENSE",
     "README.md"
   ],
@@ -15,11 +16,26 @@
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "newsletter",
+    "ses",
+    "cli",
+    "email",
+    "aws"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tilework-tech/nori-newsletter-cli.git"
+  },
+  "homepage": "https://github.com/tilework-tech/nori-newsletter-cli#readme",
+  "bugs": {
+    "url": "https://github.com/tilework-tech/nori-newsletter-cli/issues"
   },
   "license": "Apache-2.0",
   "dependencies": {
