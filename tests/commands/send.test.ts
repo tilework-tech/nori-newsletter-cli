@@ -120,4 +120,30 @@ describe("send command", () => {
     expect(exitCode).not.toBe(0);
     expect(ses.getSentEmailCount()).toBe(0);
   });
+
+  it("continues sending after individual failures and reports them", async () => {
+    const failFor = new Set(["fail1@example.com", "fail3@example.com"]);
+    ses = createMockSesService({
+      sendEmailBehavior: (to) => {
+        if (failFor.has(to)) {
+          throw new Error("Throttling: Maximum sending rate exceeded");
+        }
+        return `msg-${to}`;
+      },
+    });
+    await runCommand(ses, ["init"]);
+
+    const { exitCode, stdout, stderr } = await runCommand(ses, [
+      "send",
+      htmlPath,
+      "--test",
+      "ok1@example.com,fail1@example.com,ok2@example.com,fail3@example.com,ok3@example.com",
+    ]);
+
+    expect(ses.getSentEmailCount()).toBe(3);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("fail1@example.com");
+    expect(stderr).toContain("fail3@example.com");
+    expect(stdout).toContain("3");
+  });
 });

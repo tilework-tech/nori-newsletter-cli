@@ -4,8 +4,8 @@ Path: @/tests
 
 ### Overview
 
-- Vitest test suite covering CLI commands, library utilities, configuration loading, and npm packaging
-- Mirrors the `@/src/` directory structure: `tests/commands/`, `tests/lib/`, and root-level test files for cross-cutting concerns
+- Vitest test suite covering CLI commands, library utilities, configuration loading, SES service behavior, and npm packaging
+- Mirrors the `@/src/` directory structure: `tests/commands/`, `tests/services/`, `tests/lib/`, and root-level test files for cross-cutting concerns
 
 ### How it fits into the larger codebase
 
@@ -16,7 +16,7 @@ Path: @/tests
 
 ### Core Implementation
 
-- **`helpers.ts`:** Central test infrastructure. `createMockSesService()` returns an in-memory mock implementing the full `SesService` interface with state tracking (contacts map, sent emails list). `runCommand()` wires up the mock + a test output capture and runs Commander with `exitOverride()` so command errors become catchable `CommanderError` exceptions
+- **`helpers.ts`:** Central test infrastructure. `createMockSesService()` accepts an optional `MockSesServiceOptions` object with `sendEmailBehavior` (callback for injecting per-recipient send failures) and `maxSendRate` (defaults to 14). It returns an in-memory mock implementing the full `SesService` interface with state tracking (contacts map, sent emails list). `runCommand()` wires up the mock + a test output capture and runs Commander with `exitOverride()` so command errors become catchable `CommanderError` exceptions
 - **Command tests** (`commands/*.test.ts`) use `runCommand()` to test CLI behavior end-to-end: they pass argument arrays and assert on stdout/stderr/exitCode
 - **Help output tests** (`help.test.ts`) verify that `--help` output is self-contained by asserting on config field names, example JSON, env vars, and the correct program name. These use `program.outputHelp()` / `sub.outputHelp()` with captured output rather than `runCommand()`, since help is a synchronous Commander feature
 - **Packaging tests** (`packaging.test.ts`) shell out to `npm run build` and `npm pack --dry-run` to verify that `dist/`, `src/`, `LICENSE`, and `README.md` are included in the package, and that the bin entry has a valid node shebang

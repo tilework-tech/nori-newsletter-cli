@@ -21,6 +21,11 @@ interface SentEmail {
   topicName: string;
 }
 
+export interface MockSesServiceOptions {
+  sendEmailBehavior?: (to: string) => Promise<string> | string;
+  maxSendRate?: number;
+}
+
 export interface MockSesService extends SesService {
   getSentEmails(): SentEmail[];
   getSentEmailCount(): number;
@@ -34,7 +39,7 @@ export const TEST_CONFIG: NewsletterConfig = {
   replyTo: "reply@example.com",
 };
 
-export function createMockSesService(): MockSesService {
+export function createMockSesService(options?: MockSesServiceOptions): MockSesService {
   let contactListCreated = false;
   const contacts = new Map<string, MockContact>();
   const sentEmails: SentEmail[] = [];
@@ -124,8 +129,17 @@ export function createMockSesService(): MockSesService {
       listName: string,
       topic: string
     ): Promise<string> {
+      if (options?.sendEmailBehavior) {
+        const result = await options.sendEmailBehavior(to);
+        sentEmails.push({ from, to, subject, html, replyTo, listName, topicName: topic });
+        return result;
+      }
       sentEmails.push({ from, to, subject, html, replyTo, listName, topicName: topic });
       return `mock-message-id-${sentEmails.length}`;
+    },
+
+    async getMaxSendRate(): Promise<number> {
+      return options?.maxSendRate ?? 14;
     },
   };
 }
