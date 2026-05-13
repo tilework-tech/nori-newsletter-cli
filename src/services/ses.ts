@@ -6,6 +6,7 @@ import {
   GetContactCommand,
   DeleteContactCommand,
   SendEmailCommand,
+  GetAccountCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -43,6 +44,8 @@ export interface SesService {
     listName: string,
     topicName: string
   ): Promise<string>;
+
+  getMaxSendRate(): Promise<number>;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -199,6 +202,15 @@ export function createSesService(client: SESv2Client): SesService {
       );
 
       return response.MessageId ?? "unknown";
+    },
+
+    async getMaxSendRate(): Promise<number> {
+      try {
+        const response = await client.send(new GetAccountCommand({}));
+        return response.SendQuota?.MaxSendRate ?? 1;
+      } catch {
+        return 1;
+      }
     },
   };
 }

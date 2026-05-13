@@ -5,7 +5,7 @@ import { createProcessOutput } from "./output.js";
 import { loadConfig } from "./config.js";
 import { createProgram } from "./program.js";
 
-const client = new SESv2Client({});
+const client = new SESv2Client({ maxAttempts: 5 });
 const ses = createSesService(client);
 const out = createProcessOutput();
 const program = createProgram(ses, out, () => loadConfig());

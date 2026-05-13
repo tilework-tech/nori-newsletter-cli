@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
+import pThrottle from "p-throttle";
 import type { SesService } from "../services/ses.js";
 import type { Output } from "../output.js";
 import type { NewsletterConfig } from "../config.js";
@@ -87,24 +88,39 @@ export function createSendCommand(
           return;
         }
 
+        const maxRate = await ses.getMaxSendRate();
+        const effectiveRate = Math.max(1, Math.floor(maxRate * 0.8));
+        const throttle = pThrottle({ limit: effectiveRate, interval: 1000 });
+
+        const throttledSend = throttle((email: string) =>
+          ses.sendEmail(
+            config.fromAddress,
+            email,
+            subject,
+            html,
+            config.replyTo,
+            config.contactListName,
+            config.topicName
+          )
+        );
+
+        const results = await Promise.allSettled(
+          recipients.map((email) => throttledSend(email))
+        );
+
         let sent = 0;
         const failed: string[] = [];
-        for (const email of recipients) {
-          try {
-            await ses.sendEmail(
-              config.fromAddress,
-              email,
-              subject,
-              html,
-              config.replyTo,
-              config.contactListName,
-              config.topicName
-            );
+        for (let i = 0; i < results.length; i++) {
+          const result = results[i];
+          if (result.status === "fulfilled") {
             sent++;
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            out.error(`Failed to send to '${email}': ${msg}\n`);
-            failed.push(email);
+          } else {
+            const msg =
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason);
+            out.error(`Failed to send to '${recipients[i]}': ${msg}\n`);
+            failed.push(recipients[i]);
           }
         }
 
