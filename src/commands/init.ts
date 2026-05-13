@@ -13,9 +13,8 @@ export function createInitCommand(
   cmd
     .description(
       "Initialize the SES contact list for the newsletter. " +
-        "Creates a contact list with the name and topic from newsletter.config.json. " +
-        "Safe to run multiple times; reports success if the list already exists. " +
-        "Requires AWS credentials to be configured (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)."
+        "Creates a contact list using contactListName and topicName from the config. " +
+        "Safe to run multiple times; reports success if the list already exists."
     )
     .action(async () => {
       const config = getConfig();
