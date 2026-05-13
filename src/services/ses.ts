@@ -51,12 +51,12 @@ export function createSesService(client: SESv2Client): SesService {
       await client.send(
         new CreateContactListCommand({
           ContactListName: name,
-          Description: "Nori weekly newsletter subscribers",
+          Description: "Newsletter subscribers",
           Topics: [
             {
               TopicName: topicName,
               DisplayName: "Weekly Newsletter",
-              Description: "Weekly AI agent industry updates from Nori",
+              Description: "Newsletter updates",
               DefaultSubscriptionStatus: "OPT_IN",
             },
           ],

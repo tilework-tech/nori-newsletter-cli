@@ -106,7 +106,7 @@ describe("send command", () => {
     const { exitCode } = await runCommand(ses, ["send", noTitlePath]);
 
     expect(exitCode).toBe(0);
-    expect(ses.getSentEmails()[0].subject).toContain("2026-05-08");
+    expect(ses.getSentEmails()[0].subject).toBe("2026-05-08");
   });
 
   it("rejects invalid test recipient emails", async () => {
