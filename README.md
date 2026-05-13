@@ -89,4 +89,4 @@ npm run test:watch               # Watch mode
 
 ## License
 
-Apache-2.0
+Apache-2.0 — see [LICENSE](LICENSE) and [LICENSE-ADDENDUM.txt](LICENSE-ADDENDUM.txt).
