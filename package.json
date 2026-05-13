@@ -1,0 +1,35 @@
+{
+  "name": "nori-newsletter-cli",
+  "version": "1.0.0",
+  "description": "CLI for managing and sending newsletters via AWS SES",
+  "type": "module",
+  "bin": {
+    "nori-newsletter": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tilework-tech/nori-newsletter-cli.git"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.800.0",
+    "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  }
+}
