@@ -22,6 +22,7 @@ Path: @/
 - **npm publishing:** The `files` array in `package.json` ships `dist/`, `src/`, `LICENSE`, and `README.md`. The `prepublishOnly` script runs `npm run build && npm test` as a safety gate before every publish
 - **Module system:** Uses ESM (`"type": "module"`) with Node16 module resolution. All internal imports use `.js` extensions per Node ESM requirements
 - **Dependency injection:** `@/src/index.ts` constructs concrete dependencies (SES client, output, config loader) and passes them to `createProgram()`. Tests substitute mocks at this same boundary
+- **Help output:** `@/src/program.ts` uses Commander's `addHelpText('after', ...)` to append a self-contained Configuration section to `--help`, documenting all required config fields, an example `newsletter.config.json`, and the required AWS environment variables. This keeps the help output usable without external docs
 
 ### Things to Know
 

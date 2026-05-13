@@ -14,21 +14,44 @@ export function createProgram(
   const program = new Command();
 
   program
-    .name("nori-newsletter-cli")
+    .name("nori-newsletter")
     .version("1.0.0")
     .description(
       "CLI for managing and sending newsletters via AWS SES. " +
         "Use 'init' to set up the contact list, 'contacts' to manage subscribers, " +
-        "and 'send' to deliver newsletters. Requires AWS credentials configured " +
-        "via environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION) " +
-        "and a newsletter.config.json file."
+        "and 'send' to deliver newsletters."
     )
     .showSuggestionAfterError(true)
     .showHelpAfterError("(use --help for usage information)")
     .configureOutput({
       getOutHasColors: () => false,
       getErrHasColors: () => false,
-    });
+    })
+    .addHelpText(
+      "after",
+      `
+Configuration:
+  Reads newsletter.config.json from the current directory.
+
+  Required fields:
+    contactListName   AWS SES contact list name
+    topicName         Topic within the contact list
+    fromAddress       Verified SES sender (e.g. "Name <email>")
+    replyTo           Reply-to email address
+
+  Example newsletter.config.json:
+    {
+      "contactListName": "my-newsletter",
+      "topicName": "weekly-updates",
+      "fromAddress": "My Newsletter <news@example.com>",
+      "replyTo": "reply@example.com"
+    }
+
+Environment variables:
+  AWS_ACCESS_KEY_ID       AWS credentials for SES access
+  AWS_SECRET_ACCESS_KEY   AWS secret key
+  AWS_REGION              AWS region (e.g. us-east-1)`
+    );
 
   program.addCommand(createInitCommand(ses, out, getConfig));
   program.addCommand(createContactsCommand(ses, out, getConfig));
