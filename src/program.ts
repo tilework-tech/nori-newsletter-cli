@@ -10,6 +10,7 @@ import { createListsCommand } from "./commands/lists.js";
 import { createStatsCommand } from "./commands/stats.js";
 import { createTemplatesCommand } from "./commands/templates.js";
 import { createBulkSendCommand } from "./commands/bulk-send.js";
+import { createIdentitiesCommand } from "./commands/identities.js";
 
 export function createProgram(
   ses: SesService,
@@ -27,7 +28,8 @@ export function createProgram(
         "'send' to deliver newsletters, 'bulk-send' to send templated emails in bulk, " +
         "'suppression' to manage the account suppression list, " +
         "'lists' to manage contact lists, 'stats' to view sending statistics, " +
-        "and 'templates' to manage reusable email templates."
+        "'templates' to manage reusable email templates, " +
+        "and 'identities' to manage verified sending identities."
     )
     .showSuggestionAfterError(true)
     .showHelpAfterError("(use --help for usage information)")
@@ -69,6 +71,7 @@ Environment variables:
   program.addCommand(createStatsCommand(ses, out, getConfig));
   program.addCommand(createTemplatesCommand(ses, out, getConfig));
   program.addCommand(createBulkSendCommand(ses, out, getConfig));
+  program.addCommand(createIdentitiesCommand(ses, out, getConfig));
 
   return program;
 }

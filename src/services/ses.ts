@@ -24,6 +24,10 @@ import {
   DeleteEmailTemplateCommand,
   TestRenderEmailTemplateCommand,
   SendBulkEmailCommand,
+  CreateEmailIdentityCommand,
+  GetEmailIdentityCommand,
+  ListEmailIdentitiesCommand,
+  DeleteEmailIdentityCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -193,6 +197,44 @@ export interface SesService {
       replacementData?: string;
     }>;
   }): Promise<Array<{ status: string; messageId?: string; error?: string }>>;
+
+  listIdentities(): Promise<
+    Array<{
+      name: string;
+      type: string;
+      sendingEnabled: boolean;
+      verificationStatus: string;
+    }>
+  >;
+
+  createIdentity(identity: string): Promise<{
+    type: string;
+    verifiedForSending: boolean;
+    dkimTokens?: string[];
+    dkimHostedZone?: string;
+  }>;
+
+  getIdentity(identity: string): Promise<{
+    name: string;
+    type: string;
+    verificationStatus: string;
+    verifiedForSending: boolean;
+    feedbackForwardingStatus: boolean;
+    dkim: {
+      status: string;
+      signingEnabled: boolean;
+      tokens?: string[];
+      hostedZone?: string;
+      currentKeyLength?: string;
+    };
+    mailFrom?: {
+      domain: string;
+      status: string;
+      behaviorOnMxFailure: string;
+    };
+  } | null>;
+
+  deleteIdentity(identity: string): Promise<void>;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -801,6 +843,93 @@ export function createSesService(client: SESv2Client): SesService {
         messageId: r.MessageId,
         error: r.Error,
       }));
+    },
+
+    async listIdentities() {
+      const results: Array<{
+        name: string;
+        type: string;
+        sendingEnabled: boolean;
+        verificationStatus: string;
+      }> = [];
+      let nextToken: string | undefined;
+
+      do {
+        const response = await client.send(
+          new ListEmailIdentitiesCommand({
+            ...(nextToken && { NextToken: nextToken }),
+          })
+        );
+
+        if (response.EmailIdentities) {
+          for (const id of response.EmailIdentities) {
+            results.push({
+              name: id.IdentityName!,
+              type: id.IdentityType!,
+              sendingEnabled: id.SendingEnabled ?? false,
+              verificationStatus: id.VerificationStatus ?? "NOT_STARTED",
+            });
+          }
+        }
+        nextToken = response.NextToken;
+      } while (nextToken);
+
+      return results;
+    },
+
+    async createIdentity(identity: string) {
+      const response = await client.send(
+        new CreateEmailIdentityCommand({ EmailIdentity: identity })
+      );
+
+      return {
+        type: response.IdentityType ?? "EMAIL_ADDRESS",
+        verifiedForSending: response.VerifiedForSendingStatus ?? false,
+        dkimTokens: response.DkimAttributes?.Tokens,
+        dkimHostedZone: response.DkimAttributes?.SigningHostedZone,
+      };
+    },
+
+    async getIdentity(identity: string) {
+      try {
+        const response = await client.send(
+          new GetEmailIdentityCommand({ EmailIdentity: identity })
+        );
+
+        return {
+          name: identity,
+          type: response.IdentityType ?? "EMAIL_ADDRESS",
+          verificationStatus: response.VerificationStatus ?? "NOT_STARTED",
+          verifiedForSending: response.VerifiedForSendingStatus ?? false,
+          feedbackForwardingStatus: response.FeedbackForwardingStatus ?? false,
+          dkim: {
+            status: response.DkimAttributes?.Status ?? "NOT_STARTED",
+            signingEnabled: response.DkimAttributes?.SigningEnabled ?? false,
+            tokens: response.DkimAttributes?.Tokens,
+            hostedZone: response.DkimAttributes?.SigningHostedZone,
+            currentKeyLength: response.DkimAttributes?.CurrentSigningKeyLength,
+          },
+          mailFrom: response.MailFromAttributes?.MailFromDomain
+            ? {
+                domain: response.MailFromAttributes.MailFromDomain,
+                status: response.MailFromAttributes.MailFromDomainStatus ?? "PENDING",
+                behaviorOnMxFailure:
+                  response.MailFromAttributes.BehaviorOnMxFailure ?? "USE_DEFAULT_VALUE",
+              }
+            : undefined,
+        };
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "NotFoundException") {
+          return null;
+        }
+        throw err;
+      }
+    },
+
+    async deleteIdentity(identity: string) {
+      await client.send(
+        new DeleteEmailIdentityCommand({ EmailIdentity: identity })
+      );
     },
   };
 }

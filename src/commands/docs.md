@@ -5,7 +5,7 @@ Path: @/src/commands
 ### Overview
 
 - Contains all CLI command implementations, each exported as a factory function that receives `SesService`, `Output`, and a config getter via dependency injection
-- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), sending newsletters (individually via `send` or in batches via `bulk-send`), managing the SES account-level suppression list, managing contact lists (list, show, update, delete), viewing sending statistics/account health, and managing reusable email templates with Handlebars personalization
+- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), sending newsletters (individually via `send` or in batches via `bulk-send`), managing the SES account-level suppression list, managing contact lists (list, show, update, delete), viewing sending statistics/account health, managing reusable email templates with Handlebars personalization, and managing email/domain identity verification and DKIM configuration
 
 ### How it fits into the larger codebase
 
@@ -81,11 +81,22 @@ Path: @/src/commands
 
   The `create` and `update` subcommands read HTML/text content from local files via `readFileSync`, validating file readability at the command boundary. The `preview` subcommand validates JSON input before calling SES and returns raw rendered MIME output
 
+- **`identities` command** manages SES email and domain identities -- the verified sending addresses/domains that SES requires before allowing email delivery. This is an account-level resource, not tied to any contact list:
+
+  | Subcommand | Purpose | Key service calls |
+  |---|---|---|
+  | `list` | Show all identities with type and verification status | `listIdentities` |
+  | `verify <identity>` | Create and begin verification for an email or domain | `createIdentity` |
+  | `show <identity>` | Show verification status, DKIM config, MAIL FROM settings | `getIdentity` |
+  | `delete <identity>` | Permanently delete an identity | `deleteIdentity` |
+
+  The `verify` subcommand auto-detects email vs domain from the SES API response type: for emails it displays a message about the verification email, for domains it displays the DKIM CNAME records that must be added to DNS. The `show` subcommand displays detailed DKIM configuration (status, signing enabled, key length, tokens with CNAME record format) and optional MAIL FROM domain settings
+
 ### Things to Know
 
 - **Error handling convention:** Commands catch only expected AWS errors at the boundary (`AlreadyExistsException`, `NotFoundException`) and let unexpected errors bubble up. The `update` and `status` subcommands verify the contact exists via `getContact` before proceeding, returning a user-facing error if not found
-- **Error handling divergence across command groups:** For "get/show" operations, commands rely on the service returning `null` for not-found (e.g., `contacts status`, `suppression check`, `lists show`). For "delete/remove" operations, commands catch `NotFoundException` at the command boundary (e.g., `contacts remove`, `suppression remove`, `lists delete`). This split is intentional -- see the matching patterns in `@/src/services/ses.ts`
-- **The `suppression`, `lists`, `stats`, and `templates` commands do not depend on `newsletter.config.json`** for their SES calls because they operate at the account level. However, all factories still accept `getConfig` for consistency with the shared command factory signature
+- **Error handling divergence across command groups:** For "get/show" operations, commands rely on the service returning `null` for not-found (e.g., `contacts status`, `suppression check`, `lists show`, `identities show`). For "delete/remove" operations, commands catch `NotFoundException` at the command boundary (e.g., `contacts remove`, `suppression remove`, `lists delete`, `identities delete`). For "create/verify" operations, commands catch `AlreadyExistsException` (e.g., `init`, `identities verify`). This split is intentional -- see the matching patterns in `@/src/services/ses.ts`
+- **The `suppression`, `lists`, `stats`, `templates`, and `identities` commands do not depend on `newsletter.config.json`** for their SES calls because they operate at the account level. However, all factories still accept `getConfig` for consistency with the shared command factory signature
 - **`bulk-send` validates template existence before sending:** It calls `ses.getTemplate(templateName)` and exits with an error if the template is not found, preventing wasted API calls. Similarly, `--data` JSON is validated before any API interaction
 - **GET-then-PUT pattern for updates:** `lists update`, `contacts update`, and `templates update` all use this pattern to handle SES's full-replacement semantics. They fetch the current state, merge the caller's changes, and issue the update. For `lists update`, the `--add-topic` option uses a colon-delimited format (`topicName:displayName:OPT_IN|OPT_OUT`) where the display name may contain colons -- parsing splits on colons and uses the last segment as the status. For `templates update`, the GET-then-PUT is done at the command layer rather than the service layer
 - **Email validation:** Both `contacts add` and `contacts import` validate emails using `@/src/lib/validation.ts` before calling the service. The `suppression add` command also validates emails. Invalid emails are rejected (add) or skipped with a report (import)

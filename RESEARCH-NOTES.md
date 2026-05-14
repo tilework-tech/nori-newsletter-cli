@@ -309,3 +309,71 @@ SUCCESS, MESSAGE_REJECTED, MAIL_FROM_DOMAIN_NOT_VERIFIED, CONFIGURATION_SET_NOT_
 - Rendering failures are silent (SES accepts but email never delivers)
 - Rate limiting is per-recipient within a batch — a batch of 50 can partially throttle
 - Inline templates don't support Handlebars conditionals/loops
+
+## Identity and Domain Management APIs
+
+### CreateEmailIdentityCommand
+- Params: `EmailIdentity` (required — email address or domain), `Tags?`, `DkimSigningAttributes?`, `ConfigurationSetName?`
+- `DkimSigningAttributes` can only be specified for domains, not email addresses
+- Response: `{ IdentityType?, VerifiedForSendingStatus?, DkimAttributes? }`
+- For **email addresses**: SES sends verification email with a link (expires 24h). `DkimAttributes` is empty. `VerifiedForSendingStatus` = false until clicked.
+- For **domains**: SES returns DKIM tokens in `DkimAttributes.Tokens` (3 tokens for Easy DKIM). Must add CNAME records to DNS. SES polls for 72h.
+- Throws `AlreadyExistsException` if identity already exists (NOT idempotent)
+- Throws `LimitExceededException` (max 10,000 identities per region)
+
+### GetEmailIdentityCommand
+- Params: `EmailIdentity` (required)
+- Response fields: `IdentityType`, `FeedbackForwardingStatus`, `VerifiedForSendingStatus`, `DkimAttributes`, `MailFromAttributes`, `Policies`, `Tags`, `ConfigurationSetName`, `VerificationStatus`, `VerificationInfo`
+- Throws `NotFoundException` if identity does not exist
+
+### ListEmailIdentitiesCommand
+- Params: `NextToken?`, `PageSize?` (0-1000)
+- Response: `{ EmailIdentities?: IdentityInfo[], NextToken? }`
+- `IdentityInfo`: `{ IdentityType?, IdentityName?, SendingEnabled?, VerificationStatus? }` — sparse, no DKIM/MailFrom details
+- Returns both verified AND unverified identities
+- No `NotFoundException` — returns empty array when no identities exist
+
+### DeleteEmailIdentityCommand
+- Params: `EmailIdentity` (required)
+- Empty response on success
+- Throws `NotFoundException` if identity does not exist (NOT idempotent)
+
+### DkimAttributes Type
+```typescript
+interface DkimAttributes {
+  SigningEnabled?: boolean;
+  Status?: DkimStatus;                    // PENDING | SUCCESS | FAILED | TEMPORARY_FAILURE | NOT_STARTED
+  Tokens?: string[];                      // 3 tokens for Easy DKIM, selector for BYODKIM
+  SigningHostedZone?: string;             // DNS zone for CNAME records
+  SigningAttributesOrigin?: string;       // AWS_SES | EXTERNAL | regional AWS_SES_* values
+  NextSigningKeyLength?: string;          // RSA_1024_BIT | RSA_2048_BIT
+  CurrentSigningKeyLength?: string;
+  LastKeyGenerationTimestamp?: Date;
+}
+```
+
+### MailFromAttributes Type
+```typescript
+interface MailFromAttributes {
+  MailFromDomain: string;                 // Must be subdomain of identity
+  MailFromDomainStatus: string;           // PENDING | SUCCESS | FAILED | TEMPORARY_FAILURE (no NOT_STARTED)
+  BehaviorOnMxFailure: string;            // USE_DEFAULT_VALUE | REJECT_MESSAGE
+}
+```
+
+### Enum Values
+- `IdentityType`: EMAIL_ADDRESS | DOMAIN | MANAGED_DOMAIN (MANAGED_DOMAIN is not supported/usable)
+- `VerificationStatus`: PENDING | SUCCESS | FAILED | TEMPORARY_FAILURE | NOT_STARTED
+- `DkimStatus`: PENDING | SUCCESS | FAILED | TEMPORARY_FAILURE | NOT_STARTED
+- `DkimSigningKeyLength`: RSA_1024_BIT | RSA_2048_BIT
+- `MailFromDomainStatus`: PENDING | SUCCESS | FAILED | TEMPORARY_FAILURE
+
+### Key Quirks
+- **Email vs domain verification flows differ completely**: email uses link clicks, domain uses DNS CNAME records
+- **No re-send verification API**: must delete and re-create identity to trigger new verification email
+- **Domain verification inherits to emails**: when a domain is verified, email addresses on that domain can send without separate verification
+- **DKIM tokens create CNAME records**: format is `{token}._domainkey.yourdomain.com` → `{token}.{SigningHostedZone}`
+- **API rate limit**: 1 request/second for all identity operations (not adjustable)
+- **Max 10,000 identities per region**: email addresses + domains combined
+- **VerifiedForSendingStatus vs VerificationStatus**: `VerifiedForSendingStatus` is a boolean (can send right now?), `VerificationStatus` is an enum (PENDING/SUCCESS/FAILED/etc.)
+- **CreateEmailIdentity response is sparse**: only IdentityType, VerifiedForSendingStatus, DkimAttributes. Must call GetEmailIdentity for full details.

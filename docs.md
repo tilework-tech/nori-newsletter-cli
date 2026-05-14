@@ -5,7 +5,7 @@ Path: @/
 ### Overview
 
 - CLI tool for managing and sending newsletters via AWS SES, built with Commander and TypeScript
-- Handles full subscriber lifecycle (CRUD, CSV import, unsubscribe visibility, contact status inspection, attribute updates, resubscription) through SES contact lists, plus topic-based email delivery with automatic unsubscribe support, bulk template-based sending via the SES `SendBulkEmail` API, account-level suppression list management, contact list management (view, update, delete), sending statistics/account health monitoring, and reusable email template management with Handlebars personalization
+- Handles full subscriber lifecycle (CRUD, CSV import, unsubscribe visibility, contact status inspection, attribute updates, resubscription) through SES contact lists, plus topic-based email delivery with automatic unsubscribe support, bulk template-based sending via the SES `SendBulkEmail` API, account-level suppression list management, contact list management (view, update, delete), sending statistics/account health monitoring, reusable email template management with Handlebars personalization, and email/domain identity verification and DKIM management
 - Sends emails concurrently with automatic rate throttling based on the account's SES sending quota. The `send` command sends individually via `SendEmail`; the `bulk-send` command batches up to 50 recipients per API call via `SendBulkEmail`
 - Published to npm as `nori-newsletter-cli`, installable globally via `npm install -g nori-newsletter-cli`
 
@@ -33,7 +33,7 @@ Path: @/
 - Source files (`src/`) are included in the published package alongside compiled output (`dist/`) for source map debugging and transparency
 - The `SesService` interface (`@/src/services/ses.ts`) includes `getMaxSendRate()`, which calls `GetAccountCommand` to read the account's `SendQuota.MaxSendRate`. It falls back to 1/sec on any error or missing quota, treating the safest rate as default
 - The send command makes an additional AWS API call (`GetAccountCommand`) before each send run to determine the throttle rate
-- Several commands operate at the AWS account level and do not depend on `newsletter.config.json`: `suppression` (account-level suppression list), `lists` (contact list management), `stats` (account health and delivery metrics), and `templates` (email template management). Their factory functions still accept `getConfig` for consistency with the shared command factory signature
+- Several commands operate at the AWS account level and do not depend on `newsletter.config.json`: `suppression` (account-level suppression list), `lists` (contact list management), `stats` (account health and delivery metrics), `templates` (email template management), and `identities` (email/domain identity verification and DKIM management). Their factory functions still accept `getConfig` for consistency with the shared command factory signature
 - The `bulk-send` command uses `SendBulkEmail`, which does **not** support `ListManagementOptions` (the SES feature that auto-injects unsubscribe links). Because of this, `bulk-send` fetches opted-in contacts client-side via `listContacts` instead of relying on SES-managed unsubscribe filtering. This is a known AWS API limitation, not a design oversight
 - The `stats send` subcommand requires VDM (Virtual Deliverability Manager) to be enabled on the SES account. VDM data is retained for 60 days, which caps the `--days` option at 60
 

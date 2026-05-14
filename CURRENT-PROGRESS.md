@@ -80,7 +80,7 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 |---------|--------|
 | 6. Email Templates | Done |
 | 7. Bulk Send | Done |
-| 8. Identity and Domain Management | Not started |
+| 8. Identity and Domain Management | Done |
 | 9. Configuration Sets and Event Destinations | Not started |
 | 10. Email Address Validation | Not started |
 | 11. Bulk Import/Export via S3 | Not started |
@@ -121,3 +121,19 @@ Added a `bulk-send` command that sends templated emails to multiple recipients u
 - `src/program.ts` — Registered the bulk-send command, updated program description
 - `tests/helpers.ts` — Extended mock with `sendBulkEmail`, `SentBulkEmail` tracking, `sendBulkEmailBehavior` option
 - `tests/commands/bulk-send.test.ts` — 10 new tests (133 total, all passing)
+
+## Completed: Identity and Domain Management
+
+Added an `identities` command group with four subcommands:
+
+- `identities list` — lists all email and domain identities in the SES account with their type (EMAIL_ADDRESS/DOMAIN) and verification status (PENDING/SUCCESS/FAILED/etc.)
+- `identities verify <identity>` — verifies a new email address or domain. For email addresses, reports that a verification email was sent (link expires in 24h). For domains, displays the 3 DKIM CNAME records that need to be added to DNS (SES polls for 72h).
+- `identities show <identity>` — displays full identity details including verification status, DKIM configuration (status, signing enabled, key length, tokens), and MAIL FROM settings if configured
+- `identities delete <identity>` — deletes an identity, handles NotFoundException
+
+### Files changed
+- `src/services/ses.ts` — Extended SesService interface with `listIdentities`, `createIdentity`, `getIdentity`, `deleteIdentity`. Uses `CreateEmailIdentityCommand`, `GetEmailIdentityCommand`, `ListEmailIdentitiesCommand`, `DeleteEmailIdentityCommand`.
+- `src/commands/identities.ts` — New command file with four subcommands
+- `src/program.ts` — Registered the identities command, updated program description
+- `tests/helpers.ts` — Extended mock with `MockIdentity` in-memory storage, email-vs-domain auto-detection, DKIM token generation for domains
+- `tests/commands/identities.test.ts` — 10 new tests (144 total, all passing)

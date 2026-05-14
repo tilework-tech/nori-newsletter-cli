@@ -61,6 +61,7 @@ export interface MockSesService extends SesService {
   getSuppressedCount(): number;
   getContactListCount(): number;
   getTemplateCount(): number;
+  getIdentityCount(): number;
 }
 
 export const TEST_CONFIG: NewsletterConfig = {
@@ -98,6 +99,23 @@ interface MockTemplate {
   createdTimestamp: Date;
 }
 
+interface MockIdentity {
+  name: string;
+  type: string;
+  verificationStatus: string;
+  verifiedForSending: boolean;
+  sendingEnabled: boolean;
+  feedbackForwardingStatus: boolean;
+  dkimStatus: string;
+  dkimSigningEnabled: boolean;
+  dkimTokens?: string[];
+  dkimHostedZone?: string;
+  dkimCurrentKeyLength?: string;
+  mailFromDomain?: string;
+  mailFromDomainStatus?: string;
+  mailFromBehaviorOnMxFailure?: string;
+}
+
 export function createMockSesService(options?: MockSesServiceOptions): MockSesService {
   const contactLists = new Map<string, MockContactList>();
   const contacts = new Map<string, MockContact>();
@@ -105,6 +123,7 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
   const sentBulkEmails: SentBulkEmail[] = [];
   const suppressedDestinations = new Map<string, MockSuppressedDestination>();
   const templates = new Map<string, MockTemplate>();
+  const identities = new Map<string, MockIdentity>();
 
   return {
     getSentEmails() {
@@ -143,6 +162,10 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
 
     getTemplateCount() {
       return templates.size;
+    },
+
+    getIdentityCount() {
+      return identities.size;
     },
 
     async createContactList(name: string, topicName: string): Promise<void> {
@@ -537,6 +560,87 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
         status: "SUCCESS",
         messageId: `mock-bulk-msg-${sentBulkEmails.length}-${i}`,
       }));
+    },
+
+    async listIdentities() {
+      return Array.from(identities.values()).map((id) => ({
+        name: id.name,
+        type: id.type,
+        sendingEnabled: id.sendingEnabled,
+        verificationStatus: id.verificationStatus,
+      }));
+    },
+
+    async createIdentity(identity: string) {
+      if (identities.has(identity)) {
+        const error = new Error("Identity already exists");
+        error.name = "AlreadyExistsException";
+        throw error;
+      }
+
+      const isDomain = !identity.includes("@");
+      const type = isDomain ? "DOMAIN" : "EMAIL_ADDRESS";
+      const dkimTokens = isDomain
+        ? ["mock-token-1", "mock-token-2", "mock-token-3"]
+        : undefined;
+      const dkimHostedZone = isDomain ? "dkim.amazonses.com" : undefined;
+
+      identities.set(identity, {
+        name: identity,
+        type,
+        verificationStatus: "PENDING",
+        verifiedForSending: false,
+        sendingEnabled: false,
+        feedbackForwardingStatus: true,
+        dkimStatus: isDomain ? "PENDING" : "NOT_STARTED",
+        dkimSigningEnabled: isDomain,
+        dkimTokens,
+        dkimHostedZone,
+        dkimCurrentKeyLength: isDomain ? "RSA_2048_BIT" : undefined,
+      });
+
+      return {
+        type,
+        verifiedForSending: false,
+        dkimTokens,
+        dkimHostedZone,
+      };
+    },
+
+    async getIdentity(identity: string) {
+      const id = identities.get(identity);
+      if (!id) return null;
+
+      return {
+        name: id.name,
+        type: id.type,
+        verificationStatus: id.verificationStatus,
+        verifiedForSending: id.verifiedForSending,
+        feedbackForwardingStatus: id.feedbackForwardingStatus,
+        dkim: {
+          status: id.dkimStatus,
+          signingEnabled: id.dkimSigningEnabled,
+          tokens: id.dkimTokens,
+          hostedZone: id.dkimHostedZone,
+          currentKeyLength: id.dkimCurrentKeyLength,
+        },
+        mailFrom: id.mailFromDomain
+          ? {
+              domain: id.mailFromDomain,
+              status: id.mailFromDomainStatus ?? "SUCCESS",
+              behaviorOnMxFailure: id.mailFromBehaviorOnMxFailure ?? "USE_DEFAULT_VALUE",
+            }
+          : undefined,
+      };
+    },
+
+    async deleteIdentity(identity: string) {
+      if (!identities.has(identity)) {
+        const error = new Error("Identity not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      identities.delete(identity);
     },
   };
 }
