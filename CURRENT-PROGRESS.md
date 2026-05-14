@@ -7,7 +7,7 @@
 | 1. Unsubscribe Visibility | Done |
 | 2. Account-Level Suppression List | Done |
 | 3. Contact Updates | Done |
-| 4. Contact List Management | Not Started |
+| 4. Contact List Management | Done |
 | 5. Sending Statistics and Metrics | Not Started |
 
 ## Completed: Unsubscribe Visibility + Contact Lifecycle
@@ -40,6 +40,22 @@ Added a `suppression` command group with four subcommands:
 - `tests/helpers.ts` — Extended mock with in-memory suppression storage
 - `tests/commands/suppression.test.ts` — 14 new tests (78 total, all passing)
 
-## Next: Contact List Management
+## Completed: Contact List Management
 
-The next commit should add visibility and management of SES contact lists. Key operations: list all contact lists, view details, update metadata/topics, delete a list. This is Tier 1 item #4.
+Added a `lists` command group with four subcommands:
+
+- `lists list` — lists all contact lists in the SES account with names and last-updated timestamps
+- `lists show <name>` — displays full details of a contact list including description, topics (with display name, default status, description), timestamps, and tags
+- `lists update <name>` — updates a contact list's description, adds topics (`--add-topic name:displayName:OPT_IN|OPT_OUT`), or removes topics (`--remove-topic name`). Uses GET-then-PUT internally to handle SES's full-replacement semantics
+- `lists delete <name>` — deletes a contact list and all its contacts (cascading delete)
+
+### Files changed
+- `src/services/ses.ts` — Extended SesService with `listContactLists`, `getContactList`, `updateContactList`, `deleteContactList`
+- `src/commands/lists.ts` — New command file with four subcommands
+- `src/program.ts` — Registered the lists command, updated program description to mention all command groups
+- `tests/helpers.ts` — Refactored mock from boolean to Map-based contact list storage, added mock implementations for all 4 new methods
+- `tests/commands/lists.test.ts` — 14 new tests (93 total, all passing)
+
+## Next: Sending Statistics and Metrics
+
+The next commit should expose sending statistics and metrics. Key operations: surface quota usage (SentLast24Hours / Max24HourSend) from GetAccount, and batch metric data for delivery/engagement rates. This is Tier 1 item #5.

@@ -32,6 +32,7 @@ export interface MockSesService extends SesService {
   getContactCount(): number;
   setContactUnsubscribed(email: string, topicName: string): void;
   getSuppressedCount(): number;
+  getContactListCount(): number;
 }
 
 export const TEST_CONFIG: NewsletterConfig = {
@@ -47,8 +48,22 @@ interface MockSuppressedDestination {
   lastUpdateTime: Date;
 }
 
+interface MockContactList {
+  name: string;
+  description?: string;
+  topics: Array<{
+    topicName: string;
+    displayName: string;
+    description?: string;
+    defaultSubscriptionStatus: string;
+  }>;
+  createdTimestamp: Date;
+  lastUpdatedTimestamp: Date;
+  tags: Array<{ key: string; value: string }>;
+}
+
 export function createMockSesService(options?: MockSesServiceOptions): MockSesService {
-  let contactListCreated = false;
+  const contactLists = new Map<string, MockContactList>();
   const contacts = new Map<string, MockContact>();
   const sentEmails: SentEmail[] = [];
   const suppressedDestinations = new Map<string, MockSuppressedDestination>();
@@ -76,13 +91,32 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
       }
     },
 
-    async createContactList(_name: string, _topic: string): Promise<void> {
-      if (contactListCreated) {
+    getContactListCount() {
+      return contactLists.size;
+    },
+
+    async createContactList(name: string, topicName: string): Promise<void> {
+      if (contactLists.has(name)) {
         const error = new Error("Contact list already exists");
         error.name = "AlreadyExistsException";
         throw error;
       }
-      contactListCreated = true;
+      const now = new Date();
+      contactLists.set(name, {
+        name,
+        description: "Newsletter subscribers",
+        topics: [
+          {
+            topicName,
+            displayName: "Weekly Newsletter",
+            description: "Newsletter updates",
+            defaultSubscriptionStatus: "OPT_IN",
+          },
+        ],
+        createdTimestamp: now,
+        lastUpdatedTimestamp: now,
+        tags: [],
+      });
     },
 
     async createContact(
@@ -265,6 +299,62 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
         throw error;
       }
       suppressedDestinations.delete(email);
+    },
+
+    async listContactLists() {
+      return Array.from(contactLists.values()).map((cl) => ({
+        name: cl.name,
+        lastUpdatedTimestamp: cl.lastUpdatedTimestamp,
+      }));
+    },
+
+    async getContactList(name: string) {
+      const cl = contactLists.get(name);
+      if (!cl) return null;
+      return {
+        name: cl.name,
+        description: cl.description,
+        topics: cl.topics.map((t) => ({ ...t })),
+        createdTimestamp: cl.createdTimestamp,
+        lastUpdatedTimestamp: cl.lastUpdatedTimestamp,
+        tags: cl.tags.map((t) => ({ ...t })),
+      };
+    },
+
+    async updateContactList(
+      name: string,
+      updateOptions: {
+        description?: string;
+        topics?: Array<{
+          topicName: string;
+          displayName: string;
+          description?: string;
+          defaultSubscriptionStatus: string;
+        }>;
+      }
+    ) {
+      const cl = contactLists.get(name);
+      if (!cl) {
+        const error = new Error("Contact list not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      if (updateOptions.description !== undefined) {
+        cl.description = updateOptions.description;
+      }
+      if (updateOptions.topics !== undefined) {
+        cl.topics = updateOptions.topics;
+      }
+      cl.lastUpdatedTimestamp = new Date();
+    },
+
+    async deleteContactList(name: string) {
+      if (!contactLists.has(name)) {
+        const error = new Error("Contact list not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      contactLists.delete(name);
     },
   };
 }

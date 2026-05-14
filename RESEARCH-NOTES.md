@@ -53,3 +53,59 @@
 - **Hard bounces only**: Only hard bounces trigger automatic suppression; soft bounces do not
 - **Gmail complaints**: Gmail does NOT forward complaint data to SES, so Gmail spam reports don't auto-suppress
 - **90-day auto-deletion**: If account sending is paused, SES deletes all suppression entries after 90 days
+
+## Contact List Management APIs
+
+### ListContactListsCommand
+- Params: `PageSize?`, `NextToken?`
+- Response: `{ ContactLists?: ContactList[], NextToken? }` — PascalCase `ContactLists`
+- `ContactList` is sparse: only `ContactListName` and `LastUpdatedTimestamp`. Does NOT include Topics, Description, Tags, or CreatedTimestamp
+- Returns empty array (not NotFoundException) when no lists exist
+- Paginator `paginateListContactLists` is exported from `@aws-sdk/client-sesv2`
+- Errors: `BadRequestException`, `TooManyRequestsException` (no NotFoundException)
+
+### GetContactListCommand
+- Params: `ContactListName` (required)
+- Response: `{ ContactListName?, Topics?: Topic[], Description?, CreatedTimestamp?, LastUpdatedTimestamp?, Tags?: Tag[] }`
+- Returns full metadata — this is the only way to see Topics, Description, Tags
+- Does NOT return contact data (just list metadata)
+- Errors: `NotFoundException`, `BadRequestException`, `TooManyRequestsException`
+
+### UpdateContactListCommand
+- Params: `ContactListName` (required), `Topics?`, `Description?`
+- **CRITICAL: Full replacement operation** — omitting Topics removes all topics, omitting Description clears it
+- Pattern: always GET first, modify in memory, then PUT back (same as UpdateContact)
+- Cannot rename a contact list — ContactListName identifies which list to update
+- No Tags field — tags must be managed separately via TagResource/UntagResource
+- Errors: `NotFoundException`, `ConcurrentModificationException` (HTTP 500), `BadRequestException`, `TooManyRequestsException`
+
+### DeleteContactListCommand
+- Params: `ContactListName` (required)
+- **Cascading delete: removes list AND all contacts**
+- Empty response on success
+- Errors: `NotFoundException`, `ConcurrentModificationException`, `BadRequestException`, `TooManyRequestsException`
+
+### Topic Type
+```typescript
+interface Topic {
+  TopicName: string;         // required
+  DisplayName: string;       // required
+  Description?: string;      // optional
+  DefaultSubscriptionStatus: "OPT_IN" | "OPT_OUT"; // required
+}
+```
+
+### Tag Type
+```typescript
+interface Tag {
+  Key: string;    // required, max 128 chars
+  Value: string;  // required, max 256 chars
+}
+```
+
+### Key Quirks
+- ListContactLists returns sparse objects — need GetContactList per list for full details
+- UpdateContactList is full replacement (same pattern as UpdateContact)
+- ConcurrentModificationException on both update AND delete
+- Topics have a 20-topic limit per contact list
+- Removing a topic via UpdateContactList — unclear what happens to existing contacts' TopicPreferences for that topic

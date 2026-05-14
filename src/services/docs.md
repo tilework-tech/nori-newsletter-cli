@@ -5,7 +5,7 @@ Path: @/src/services
 ### Overview
 
 - Defines the `SesService` interface and its concrete AWS SES implementation, providing the abstraction boundary between CLI commands and the AWS SDK
-- All AWS SES API calls (contact management, email sending, account quota queries, account-level suppression list management) flow through this single service layer
+- All AWS SES API calls (contact management, email sending, account quota queries, account-level suppression list management, contact list management) flow through this single service layer
 
 ### How it fits into the larger codebase
 
@@ -22,12 +22,13 @@ Path: @/src/services
 - **Email sending:** `sendEmail` wraps `SendEmailCommand` with `ListManagementOptions` to enable SES-managed unsubscribe links and topic-based preference handling
 - **Rate discovery:** `getMaxSendRate()` calls `GetAccountCommand` to read the account's `SendQuota.MaxSendRate`, falling back to 1/sec on any error
 - **Suppression list methods:** `listSuppressedDestinations`, `getSuppressedDestination`, `putSuppressedDestination`, and `deleteSuppressedDestination` wrap the corresponding SES account-level suppression list API commands. These operate at the AWS account level, not on any specific contact list. `listSuppressedDestinations` supports server-side filtering by reason and date range, and handles pagination via `NextToken`
+- **Contact list management methods:** `listContactLists`, `getContactList`, `updateContactList`, and `deleteContactList` provide CRUD operations on SES contact lists themselves (as opposed to the contacts within them). `updateContactList` uses GET-then-PUT to handle SES's full-replacement semantics -- same pattern as `updateContact`. `listContactLists` handles pagination via `NextToken`
 
 ### Things to Know
 
 - **`listUnsubscribedContacts` works around an AWS service bug:** The SES `ListContactsCommand` with `FilteredStatus: "OPT_OUT"` returns empty results (tracked in AWS SDK GitHub issue #8742). The implementation fetches all contacts without a filter and performs client-side filtering for `UnsubscribeAll` or topic-level `OPT_OUT` status. This is intentional and necessary until AWS fixes the API
 - **`updateContact` uses GET-then-PUT to handle SES's full-replacement semantics:** The SES `UpdateContactCommand` replaces all fields, not just the ones you send. The service reads the current contact state first, merges the caller's changes (topic preferences, unsubscribe flag, attributes), and then issues the update. This prevents accidental data loss when updating a single field
-- **Two methods catch `NotFoundException` and return `null`:** `getContact` and `getSuppressedDestination` both catch `NotFoundException` at the SDK boundary and return `null` instead of propagating the error. All other methods (including `deleteContact` and `deleteSuppressedDestination`) let `NotFoundException` propagate to the caller. This split is intentional -- "get" methods are querying for existence, while "delete" methods failing on a missing resource is an error the command layer should handle
-- **Pagination:** `listContacts`, `listUnsubscribedContacts`, and `listSuppressedDestinations` all handle SES pagination via `NextToken` loops to return complete result sets
+- **Three methods catch `NotFoundException` and return `null`:** `getContact`, `getSuppressedDestination`, and `getContactList` all catch `NotFoundException` at the SDK boundary and return `null` instead of propagating the error. All other methods (including `deleteContact`, `deleteSuppressedDestination`, and `deleteContactList`) let `NotFoundException` propagate to the caller. This split is intentional -- "get" methods are querying for existence, while "delete" methods failing on a missing resource is an error the command layer should handle
+- **Pagination:** All `list*` methods (`listContacts`, `listUnsubscribedContacts`, `listSuppressedDestinations`, `listContactLists`) handle SES pagination via `NextToken` loops to return complete result sets
 
 Created and maintained by Nori.

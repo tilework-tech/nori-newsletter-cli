@@ -12,6 +12,10 @@ import {
   GetSuppressedDestinationCommand,
   PutSuppressedDestinationCommand,
   DeleteSuppressedDestinationCommand,
+  ListContactListsCommand,
+  GetContactListCommand,
+  UpdateContactListCommand,
+  DeleteContactListCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -87,6 +91,41 @@ export interface SesService {
   putSuppressedDestination(email: string, reason: string): Promise<void>;
 
   deleteSuppressedDestination(email: string): Promise<void>;
+
+  listContactLists(): Promise<
+    Array<{ name: string; lastUpdatedTimestamp: Date }>
+  >;
+
+  getContactList(
+    name: string
+  ): Promise<{
+    name: string;
+    description?: string;
+    topics: Array<{
+      topicName: string;
+      displayName: string;
+      description?: string;
+      defaultSubscriptionStatus: string;
+    }>;
+    createdTimestamp?: Date;
+    lastUpdatedTimestamp?: Date;
+    tags: Array<{ key: string; value: string }>;
+  } | null>;
+
+  updateContactList(
+    name: string,
+    options: {
+      description?: string;
+      topics?: Array<{
+        topicName: string;
+        displayName: string;
+        description?: string;
+        defaultSubscriptionStatus: string;
+      }>;
+    }
+  ): Promise<void>;
+
+  deleteContactList(name: string): Promise<void>;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -414,6 +453,101 @@ export function createSesService(client: SESv2Client): SesService {
     async deleteSuppressedDestination(email: string): Promise<void> {
       await client.send(
         new DeleteSuppressedDestinationCommand({ EmailAddress: email })
+      );
+    },
+
+    async listContactLists() {
+      const results: Array<{ name: string; lastUpdatedTimestamp: Date }> = [];
+      let nextToken: string | undefined;
+
+      do {
+        const response = await client.send(
+          new ListContactListsCommand({
+            ...(nextToken && { NextToken: nextToken }),
+          })
+        );
+
+        if (response.ContactLists) {
+          for (const cl of response.ContactLists) {
+            results.push({
+              name: cl.ContactListName!,
+              lastUpdatedTimestamp: cl.LastUpdatedTimestamp!,
+            });
+          }
+        }
+        nextToken = response.NextToken;
+      } while (nextToken);
+
+      return results;
+    },
+
+    async getContactList(name: string) {
+      try {
+        const response = await client.send(
+          new GetContactListCommand({ ContactListName: name })
+        );
+
+        return {
+          name: response.ContactListName!,
+          description: response.Description,
+          topics: (response.Topics ?? []).map((t) => ({
+            topicName: t.TopicName!,
+            displayName: t.DisplayName!,
+            description: t.Description,
+            defaultSubscriptionStatus: t.DefaultSubscriptionStatus!,
+          })),
+          createdTimestamp: response.CreatedTimestamp,
+          lastUpdatedTimestamp: response.LastUpdatedTimestamp,
+          tags: (response.Tags ?? []).map((t) => ({
+            key: t.Key!,
+            value: t.Value!,
+          })),
+        };
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "NotFoundException") {
+          return null;
+        }
+        throw err;
+      }
+    },
+
+    async updateContactList(
+      name: string,
+      options: {
+        description?: string;
+        topics?: Array<{
+          topicName: string;
+          displayName: string;
+          description?: string;
+          defaultSubscriptionStatus: string;
+        }>;
+      }
+    ) {
+      const current = await client.send(
+        new GetContactListCommand({ ContactListName: name })
+      );
+
+      const topics = options.topics
+        ? options.topics.map((t) => ({
+            TopicName: t.topicName,
+            DisplayName: t.displayName,
+            Description: t.description,
+            DefaultSubscriptionStatus: t.defaultSubscriptionStatus as "OPT_IN" | "OPT_OUT",
+          }))
+        : current.Topics;
+
+      await client.send(
+        new UpdateContactListCommand({
+          ContactListName: name,
+          Topics: topics,
+          Description: options.description ?? current.Description,
+        })
+      );
+    },
+
+    async deleteContactList(name: string) {
+      await client.send(
+        new DeleteContactListCommand({ ContactListName: name })
       );
     },
   };
