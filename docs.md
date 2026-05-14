@@ -5,7 +5,7 @@ Path: @/
 ### Overview
 
 - CLI tool for managing and sending newsletters via AWS SES, built with Commander and TypeScript
-- Handles full subscriber lifecycle (CRUD, CSV import, unsubscribe visibility, contact status inspection, attribute updates, resubscription) through SES contact lists, plus topic-based email delivery with automatic unsubscribe support, account-level suppression list management, and contact list management (view, update, delete)
+- Handles full subscriber lifecycle (CRUD, CSV import, unsubscribe visibility, contact status inspection, attribute updates, resubscription) through SES contact lists, plus topic-based email delivery with automatic unsubscribe support, account-level suppression list management, contact list management (view, update, delete), and sending statistics/account health monitoring
 - Sends emails concurrently with automatic rate throttling based on the account's SES sending quota
 - Published to npm as `nori-newsletter-cli`, installable globally via `npm install -g nori-newsletter-cli`
 
@@ -33,6 +33,7 @@ Path: @/
 - Source files (`src/`) are included in the published package alongside compiled output (`dist/`) for source map debugging and transparency
 - The `SesService` interface (`@/src/services/ses.ts`) includes `getMaxSendRate()`, which calls `GetAccountCommand` to read the account's `SendQuota.MaxSendRate`. It falls back to 1/sec on any error or missing quota, treating the safest rate as default
 - The send command makes an additional AWS API call (`GetAccountCommand`) before each send run to determine the throttle rate
-- The `SesService` interface includes both suppression list methods and contact list management methods that operate at the AWS account level (not tied to any specific contact list). The `suppression` and `lists` commands (`@/src/commands/suppression.ts`, `@/src/commands/lists.ts`) do not use `newsletter.config.json` for their SES calls despite accepting `getConfig` in their factory signatures
+- Several commands operate at the AWS account level and do not depend on `newsletter.config.json`: `suppression` (account-level suppression list), `lists` (contact list management), and `stats` (account health and delivery metrics). Their factory functions still accept `getConfig` for consistency with the shared command factory signature
+- The `stats send` subcommand requires VDM (Virtual Deliverability Manager) to be enabled on the SES account. VDM data is retained for 60 days, which caps the `--days` option at 60
 
 Created and maintained by Nori.

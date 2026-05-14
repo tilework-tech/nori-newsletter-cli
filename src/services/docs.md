@@ -5,7 +5,7 @@ Path: @/src/services
 ### Overview
 
 - Defines the `SesService` interface and its concrete AWS SES implementation, providing the abstraction boundary between CLI commands and the AWS SDK
-- All AWS SES API calls (contact management, email sending, account quota queries, account-level suppression list management, contact list management) flow through this single service layer
+- All AWS SES API calls (contact management, email sending, account quota queries, account-level suppression list management, contact list management, account health, and delivery metrics) flow through this single service layer
 
 ### How it fits into the larger codebase
 
@@ -23,6 +23,7 @@ Path: @/src/services
 - **Rate discovery:** `getMaxSendRate()` calls `GetAccountCommand` to read the account's `SendQuota.MaxSendRate`, falling back to 1/sec on any error
 - **Suppression list methods:** `listSuppressedDestinations`, `getSuppressedDestination`, `putSuppressedDestination`, and `deleteSuppressedDestination` wrap the corresponding SES account-level suppression list API commands. These operate at the AWS account level, not on any specific contact list. `listSuppressedDestinations` supports server-side filtering by reason and date range, and handles pagination via `NextToken`
 - **Contact list management methods:** `listContactLists`, `getContactList`, `updateContactList`, and `deleteContactList` provide CRUD operations on SES contact lists themselves (as opposed to the contacts within them). `updateContactList` uses GET-then-PUT to handle SES's full-replacement semantics -- same pattern as `updateContact`. `listContactLists` handles pagination via `NextToken`
+- **Account health and metrics methods:** `getAccountInfo()` calls `GetAccountCommand` and surfaces sending quota (sent/max last 24h), max send rate, enforcement status (HEALTHY/PROBATION/SHUTDOWN), production vs sandbox mode, and whether sending is enabled. `getMetrics()` wraps `BatchGetMetricDataCommand` to retrieve delivery metrics (SEND, DELIVERY, PERMANENT_BOUNCE, COMPLAINT) over a time range, with optional filtering by sending identity via the `EMAIL_IDENTITY` dimension. Both methods reuse the same `GetAccountCommand` that `getMaxSendRate()` uses, but `getAccountInfo()` extracts a broader set of fields
 
 ### Things to Know
 
@@ -30,5 +31,6 @@ Path: @/src/services
 - **`updateContact` uses GET-then-PUT to handle SES's full-replacement semantics:** The SES `UpdateContactCommand` replaces all fields, not just the ones you send. The service reads the current contact state first, merges the caller's changes (topic preferences, unsubscribe flag, attributes), and then issues the update. This prevents accidental data loss when updating a single field
 - **Three methods catch `NotFoundException` and return `null`:** `getContact`, `getSuppressedDestination`, and `getContactList` all catch `NotFoundException` at the SDK boundary and return `null` instead of propagating the error. All other methods (including `deleteContact`, `deleteSuppressedDestination`, and `deleteContactList`) let `NotFoundException` propagate to the caller. This split is intentional -- "get" methods are querying for existence, while "delete" methods failing on a missing resource is an error the command layer should handle
 - **Pagination:** All `list*` methods (`listContacts`, `listUnsubscribedContacts`, `listSuppressedDestinations`, `listContactLists`) handle SES pagination via `NextToken` loops to return complete result sets
+- **`getMetrics()` requires VDM:** The `BatchGetMetricDataCommand` only works when Virtual Deliverability Manager is enabled on the SES account. Metric data is retained for 60 days. The method builds one query per metric in the `VDM` namespace and returns both results and errors separately, since individual metric queries can fail independently within a batch
 
 Created and maintained by Nori.

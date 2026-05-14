@@ -16,6 +16,7 @@ import {
   GetContactListCommand,
   UpdateContactListCommand,
   DeleteContactListCommand,
+  BatchGetMetricDataCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -126,6 +127,29 @@ export interface SesService {
   ): Promise<void>;
 
   deleteContactList(name: string): Promise<void>;
+
+  getAccountInfo(): Promise<{
+    sentLast24Hours: number;
+    max24HourSend: number;
+    maxSendRate: number;
+    enforcementStatus: string;
+    productionAccessEnabled: boolean;
+    sendingEnabled: boolean;
+  }>;
+
+  getMetrics(options: {
+    startDate: Date;
+    endDate: Date;
+    metrics: string[];
+    identity?: string;
+  }): Promise<{
+    results: Array<{
+      metric: string;
+      timestamps: Date[];
+      values: number[];
+    }>;
+    errors: Array<{ metric: string; message: string }>;
+  }>;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -549,6 +573,55 @@ export function createSesService(client: SESv2Client): SesService {
       await client.send(
         new DeleteContactListCommand({ ContactListName: name })
       );
+    },
+
+    async getAccountInfo() {
+      const response = await client.send(new GetAccountCommand({}));
+      return {
+        sentLast24Hours: response.SendQuota?.SentLast24Hours ?? 0,
+        max24HourSend: response.SendQuota?.Max24HourSend ?? 0,
+        maxSendRate: response.SendQuota?.MaxSendRate ?? 0,
+        enforcementStatus: response.EnforcementStatus ?? "UNKNOWN",
+        productionAccessEnabled: response.ProductionAccessEnabled ?? false,
+        sendingEnabled: response.SendingEnabled ?? false,
+      };
+    },
+
+    async getMetrics(options: {
+      startDate: Date;
+      endDate: Date;
+      metrics: string[];
+      identity?: string;
+    }) {
+      const queries = options.metrics.map((metric) => ({
+        Id: metric.toLowerCase(),
+        Namespace: "VDM" as const,
+        Metric: metric as "SEND" | "DELIVERY" | "PERMANENT_BOUNCE" | "COMPLAINT",
+        StartDate: options.startDate,
+        EndDate: options.endDate,
+        ...(options.identity && {
+          Dimensions: { EMAIL_IDENTITY: options.identity } as Partial<
+            Record<"CONFIGURATION_SET" | "EMAIL_IDENTITY" | "ISP", string>
+          >,
+        }),
+      }));
+
+      const response = await client.send(
+        new BatchGetMetricDataCommand({ Queries: queries })
+      );
+
+      const results = (response.Results ?? []).map((r) => ({
+        metric: (r.Id ?? "").toUpperCase(),
+        timestamps: r.Timestamps ?? [],
+        values: r.Values ?? [],
+      }));
+
+      const errors = (response.Errors ?? []).map((e) => ({
+        metric: (e.Id ?? "").toUpperCase(),
+        message: e.Message ?? "Unknown error",
+      }));
+
+      return { results, errors };
     },
   };
 }

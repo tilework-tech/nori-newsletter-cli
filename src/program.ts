@@ -7,6 +7,7 @@ import { createContactsCommand } from "./commands/contacts.js";
 import { createSendCommand } from "./commands/send.js";
 import { createSuppressionCommand } from "./commands/suppression.js";
 import { createListsCommand } from "./commands/lists.js";
+import { createStatsCommand } from "./commands/stats.js";
 
 export function createProgram(
   ses: SesService,
@@ -22,7 +23,7 @@ export function createProgram(
       "CLI for managing and sending newsletters via AWS SES. " +
         "Use 'init' to set up a contact list, 'contacts' to manage subscribers, " +
         "'send' to deliver newsletters, 'suppression' to manage the account suppression list, " +
-        "and 'lists' to manage contact lists."
+        "'lists' to manage contact lists, and 'stats' to view sending statistics."
     )
     .showSuggestionAfterError(true)
     .showHelpAfterError("(use --help for usage information)")
@@ -61,6 +62,7 @@ Environment variables:
   program.addCommand(createSendCommand(ses, out, getConfig));
   program.addCommand(createSuppressionCommand(ses, out, getConfig));
   program.addCommand(createListsCommand(ses, out, getConfig));
+  program.addCommand(createStatsCommand(ses, out, getConfig));
 
   return program;
 }

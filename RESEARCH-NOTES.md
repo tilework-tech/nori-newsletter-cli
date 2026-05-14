@@ -109,3 +109,50 @@ interface Tag {
 - ConcurrentModificationException on both update AND delete
 - Topics have a 20-topic limit per contact list
 - Removing a topic via UpdateContactList — unclear what happens to existing contacts' TopicPreferences for that topic
+
+## Sending Statistics and Metrics APIs
+
+### GetAccountCommand (Expanded Usage)
+- Already used for `getMaxSendRate()` in `src/services/ses.ts`
+- Response includes much more than currently surfaced:
+  - `SendQuota.Max24HourSend` — max emails per 24h period (-1 = unlimited)
+  - `SendQuota.SentLast24Hours` — emails sent in past 24h
+  - `SendQuota.MaxSendRate` — max emails/second (already used)
+  - `EnforcementStatus` — string, documented values: "HEALTHY", "PROBATION", "SHUTDOWN" (not a formal enum)
+  - `ProductionAccessEnabled` — boolean, false = sandbox mode
+  - `SendingEnabled` — boolean, whether sending is enabled in current region
+- All fields optional in TypeScript types
+- No additional API call needed — same `GetAccountCommand({})` already in use
+
+### BatchGetMetricDataCommand
+- Import: `BatchGetMetricDataCommand` from `@aws-sdk/client-sesv2`
+- **Request**: `{ Queries: BatchGetMetricDataQuery[] }` — min 1, max 10 queries per request
+- **Query shape**:
+  ```typescript
+  {
+    Id: string;              // 1-255 chars, identifies result
+    Namespace: "VDM";        // only valid value
+    Metric: Metric;          // see enum below
+    Dimensions?: Partial<Record<MetricDimensionName, string>>;  // max 3
+    StartDate: Date;
+    EndDate: Date;
+  }
+  ```
+- **Metric enum values**: SEND, DELIVERY, PERMANENT_BOUNCE, TRANSIENT_BOUNCE, COMPLAINT, OPEN, CLICK, DELIVERY_OPEN, DELIVERY_CLICK, DELIVERY_COMPLAINT
+- **MetricDimensionName enum**: EMAIL_IDENTITY, CONFIGURATION_SET, ISP
+- **Response**:
+  ```typescript
+  {
+    Results?: MetricDataResult[];  // { Id, Timestamps: Date[], Values: number[] }
+    Errors?: MetricDataError[];    // { Id, Code: "INTERNAL_FAILURE"|"ACCESS_DENIED", Message }
+  }
+  ```
+- **Data granularity**: Daily buckets
+- **Retention**: 60 days — queries beyond this return empty results
+- **Rate limits**: 16 requests/second, 160 queries/second cumulative
+- **VDM requirement**: Account must have VDM enabled for metrics to be collected
+- **Key semantics**:
+  - SEND = emails eligible for VDM tracking (excludes mailbox simulator/multi-recipient)
+  - PERMANENT_BOUNCE = hard bounces (non-existent mailboxes)
+  - TRANSIENT_BOUNCE = soft bounces (delivery failures, NOT non-existent)
+  - DELIVERY_OPEN/DELIVERY_CLICK/DELIVERY_COMPLAINT = denominator metrics for rate calculation

@@ -5,7 +5,7 @@ Path: @/src/commands
 ### Overview
 
 - Contains all CLI command implementations, each exported as a factory function that receives `SesService`, `Output`, and a config getter via dependency injection
-- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), sending newsletters, managing the SES account-level suppression list, and managing contact lists (list, show, update, delete)
+- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), sending newsletters, managing the SES account-level suppression list, managing contact lists (list, show, update, delete), and viewing sending statistics/account health
 
 ### How it fits into the larger codebase
 
@@ -52,11 +52,20 @@ Path: @/src/commands
   | `update <name>` | Update description and/or add/remove topics | `getContactList` then `updateContactList` |
   | `delete <name>` | Permanently delete a list and all its contacts | `deleteContactList` |
 
+- **`stats` command** provides account-level sending statistics and health monitoring. Unlike most other commands, it does not depend on `newsletter.config.json`:
+
+  | Subcommand | Purpose | Key service calls |
+  |---|---|---|
+  | `account` | Show sending quota usage, send rate, enforcement status, production/sandbox mode, sending enabled/disabled | `getAccountInfo` |
+  | `send` | Show delivery metrics (send, delivery, bounce, complaint totals) over a configurable time range | `getMetrics` |
+
+  The `send` subcommand validates `--days` (positive integer, max 60) at the command boundary and returns exit code 1 for invalid input. It sums per-day metric values into totals for display. Supports `--identity` to filter metrics by a specific sending identity (email or domain)
+
 ### Things to Know
 
 - **Error handling convention:** Commands catch only expected AWS errors at the boundary (`AlreadyExistsException`, `NotFoundException`) and let unexpected errors bubble up. The `update` and `status` subcommands verify the contact exists via `getContact` before proceeding, returning a user-facing error if not found
 - **Error handling divergence across command groups:** For "get/show" operations, commands rely on the service returning `null` for not-found (e.g., `contacts status`, `suppression check`, `lists show`). For "delete/remove" operations, commands catch `NotFoundException` at the command boundary (e.g., `contacts remove`, `suppression remove`, `lists delete`). This split is intentional -- see the matching patterns in `@/src/services/ses.ts`
-- **The `suppression` and `lists` commands do not depend on `newsletter.config.json`** for their SES calls because they operate at the account level. However, both factories still accept `getConfig` for consistency with all other command factories
+- **The `suppression`, `lists`, and `stats` commands do not depend on `newsletter.config.json`** for their SES calls because they operate at the account level. However, all factories still accept `getConfig` for consistency with the shared command factory signature
 - **The `lists update` command uses GET-then-PUT** to handle SES's full-replacement semantics (same pattern as `contacts update`). It fetches the current list state via `getContactList`, applies topic add/remove and description changes, then issues the update. The `--add-topic` option uses a colon-delimited format (`topicName:displayName:OPT_IN|OPT_OUT`) where the display name may contain colons -- parsing splits on colons and uses the last segment as the status
 - **Email validation:** Both `contacts add` and `contacts import` validate emails using `@/src/lib/validation.ts` before calling the service. The `suppression add` command also validates emails. Invalid emails are rejected (add) or skipped with a report (import)
 - **The `update` subcommand's resubscribe logic** maps over the contact's existing topic preferences and flips only the configured topic to `OPT_IN`, preserving other topic states. It also sets `unsubscribeAll: false`

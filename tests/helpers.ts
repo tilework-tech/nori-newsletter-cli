@@ -24,6 +24,20 @@ interface SentEmail {
 export interface MockSesServiceOptions {
   sendEmailBehavior?: (to: string) => Promise<string> | string;
   maxSendRate?: number;
+  accountInfo?: {
+    sentLast24Hours?: number;
+    max24HourSend?: number;
+    maxSendRate?: number;
+    enforcementStatus?: string;
+    productionAccessEnabled?: boolean;
+    sendingEnabled?: boolean;
+  };
+  metricsResults?: Array<{
+    metric: string;
+    timestamps: Date[];
+    values: number[];
+  }>;
+  metricsErrors?: Array<{ metric: string; message: string }>;
 }
 
 export interface MockSesService extends SesService {
@@ -355,6 +369,30 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
         throw error;
       }
       contactLists.delete(name);
+    },
+
+    async getAccountInfo() {
+      const info = options?.accountInfo ?? {};
+      return {
+        sentLast24Hours: info.sentLast24Hours ?? 150,
+        max24HourSend: info.max24HourSend ?? 50000,
+        maxSendRate: info.maxSendRate ?? 14,
+        enforcementStatus: info.enforcementStatus ?? "HEALTHY",
+        productionAccessEnabled: info.productionAccessEnabled ?? true,
+        sendingEnabled: info.sendingEnabled ?? true,
+      };
+    },
+
+    async getMetrics(_options: {
+      startDate: Date;
+      endDate: Date;
+      metrics: string[];
+      identity?: string;
+    }) {
+      return {
+        results: options?.metricsResults ?? [],
+        errors: options?.metricsErrors ?? [],
+      };
     },
   };
 }

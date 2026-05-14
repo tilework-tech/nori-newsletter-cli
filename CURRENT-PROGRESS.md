@@ -8,7 +8,7 @@
 | 2. Account-Level Suppression List | Done |
 | 3. Contact Updates | Done |
 | 4. Contact List Management | Done |
-| 5. Sending Statistics and Metrics | Not Started |
+| 5. Sending Statistics and Metrics | Done |
 
 ## Completed: Unsubscribe Visibility + Contact Lifecycle
 
@@ -56,6 +56,20 @@ Added a `lists` command group with four subcommands:
 - `tests/helpers.ts` — Refactored mock from boolean to Map-based contact list storage, added mock implementations for all 4 new methods
 - `tests/commands/lists.test.ts` — 14 new tests (93 total, all passing)
 
-## Next: Sending Statistics and Metrics
+## Completed: Sending Statistics and Metrics
 
-The next commit should expose sending statistics and metrics. Key operations: surface quota usage (SentLast24Hours / Max24HourSend) from GetAccount, and batch metric data for delivery/engagement rates. This is Tier 1 item #5.
+Added a `stats` command group with two subcommands:
+
+- `stats account` — shows SES account health: sending quota usage (sent/max in last 24h), max send rate, enforcement status (HEALTHY/PROBATION/SHUTDOWN), production vs sandbox mode, and whether sending is enabled
+- `stats send` — retrieves delivery metrics using BatchGetMetricData API. Shows totals for SEND, DELIVERY, PERMANENT_BOUNCE, and COMPLAINT over a configurable time range (`--days`, default 7, max 60). Supports filtering by sending identity (`--identity`). Requires VDM to be enabled.
+
+### Files changed
+- `src/services/ses.ts` — Extended SesService with `getAccountInfo()` (expands existing GetAccount usage) and `getMetrics()` (new BatchGetMetricDataCommand)
+- `src/commands/stats.ts` — New command file with two subcommands
+- `src/program.ts` — Registered the stats command, updated program description
+- `tests/helpers.ts` — Extended mock with `getAccountInfo()` and `getMetrics()`, added MockSesServiceOptions fields
+- `tests/commands/stats.test.ts` — 15 new tests (110 total, all passing)
+
+## All Tier 1 Features Complete
+
+All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented. The next step would be Tier 2 features if desired.
