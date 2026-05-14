@@ -5,7 +5,7 @@ Path: @/
 ### Overview
 
 - CLI tool for managing and sending newsletters via AWS SES, built with Commander and TypeScript
-- Handles full subscriber lifecycle (CRUD, CSV import, unsubscribe visibility, contact status inspection, attribute updates, resubscription) through SES contact lists, plus topic-based email delivery with automatic unsubscribe support
+- Handles full subscriber lifecycle (CRUD, CSV import, unsubscribe visibility, contact status inspection, attribute updates, resubscription) through SES contact lists, plus topic-based email delivery with automatic unsubscribe support and account-level suppression list management
 - Sends emails concurrently with automatic rate throttling based on the account's SES sending quota
 - Published to npm as `nori-newsletter-cli`, installable globally via `npm install -g nori-newsletter-cli`
 
@@ -33,5 +33,6 @@ Path: @/
 - Source files (`src/`) are included in the published package alongside compiled output (`dist/`) for source map debugging and transparency
 - The `SesService` interface (`@/src/services/ses.ts`) includes `getMaxSendRate()`, which calls `GetAccountCommand` to read the account's `SendQuota.MaxSendRate`. It falls back to 1/sec on any error or missing quota, treating the safest rate as default
 - The send command makes an additional AWS API call (`GetAccountCommand`) before each send run to determine the throttle rate
+- The `SesService` interface includes suppression list methods that operate at the AWS account level (not tied to any contact list). The `suppression` command (`@/src/commands/suppression.ts`) does not use `newsletter.config.json` for its SES calls despite accepting `getConfig` in its factory signature
 
 Created and maintained by Nori.

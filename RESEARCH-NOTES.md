@@ -27,3 +27,29 @@
 ### SDK Enum Exports
 - SDK exports: `SuppressionListReason`, `Metric`, `MetricDimensionName`, `SubscriptionStatus`
 - If enums don't resolve, use string literals: "BOUNCE", "OPT_IN", etc.
+
+## Account-Level Suppression List APIs
+
+### API Commands and Types
+- `ListSuppressedDestinationsCommand` — params: `Reasons?` (["BOUNCE"|"COMPLAINT"]), `StartDate?`, `EndDate?`, `NextToken?`, `PageSize?`
+- Returns `SuppressedDestinationSummary[]`: `{ EmailAddress, Reason, LastUpdateTime }` (no Attributes)
+- `GetSuppressedDestinationCommand` — param: `EmailAddress` (required)
+- Returns `SuppressedDestination`: `{ EmailAddress, Reason, LastUpdateTime, Attributes?: { MessageId?, FeedbackId? } }`
+- Throws `NotFoundException` when address is not suppressed
+- `PutSuppressedDestinationCommand` — params: `EmailAddress` (required), `Reason` (required: "BOUNCE"|"COMPLAINT")
+- Empty response. This is an upsert — calling on already-suppressed address updates reason and timestamp
+- `DeleteSuppressedDestinationCommand` — param: `EmailAddress` (required)
+- Empty response. Throws `NotFoundException` if not suppressed
+
+### SuppressionListReason
+- Const object, not TypeScript enum: `{ BOUNCE: "BOUNCE", COMPLAINT: "COMPLAINT" }`
+- Type is union: `"BOUNCE" | "COMPLAINT"`
+
+### Key Quirks
+- **Case sensitivity**: Suppression list management APIs are case-sensitive for email lookups
+- **Pagination**: SDK paginator `paginateListSuppressedDestinations` works (AWS CLI has a known pagination bug #7859, not relevant here)
+- **Sandbox restriction**: `PutSuppressedDestination` requires production access (not sandbox)
+- **Messages still count toward quota**: Sending to suppressed addresses counts toward daily quota even though SES won't deliver
+- **Hard bounces only**: Only hard bounces trigger automatic suppression; soft bounces do not
+- **Gmail complaints**: Gmail does NOT forward complaint data to SES, so Gmail spam reports don't auto-suppress
+- **90-day auto-deletion**: If account sending is paused, SES deletes all suppression entries after 90 days

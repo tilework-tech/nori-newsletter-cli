@@ -5,6 +5,7 @@ import type { NewsletterConfig } from "./config.js";
 import { createInitCommand } from "./commands/init.js";
 import { createContactsCommand } from "./commands/contacts.js";
 import { createSendCommand } from "./commands/send.js";
+import { createSuppressionCommand } from "./commands/suppression.js";
 
 export function createProgram(
   ses: SesService,
@@ -56,6 +57,7 @@ Environment variables:
   program.addCommand(createInitCommand(ses, out, getConfig));
   program.addCommand(createContactsCommand(ses, out, getConfig));
   program.addCommand(createSendCommand(ses, out, getConfig));
+  program.addCommand(createSuppressionCommand(ses, out, getConfig));
 
   return program;
 }

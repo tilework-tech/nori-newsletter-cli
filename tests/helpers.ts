@@ -31,6 +31,7 @@ export interface MockSesService extends SesService {
   getSentEmailCount(): number;
   getContactCount(): number;
   setContactUnsubscribed(email: string, topicName: string): void;
+  getSuppressedCount(): number;
 }
 
 export const TEST_CONFIG: NewsletterConfig = {
@@ -40,10 +41,17 @@ export const TEST_CONFIG: NewsletterConfig = {
   replyTo: "reply@example.com",
 };
 
+interface MockSuppressedDestination {
+  email: string;
+  reason: string;
+  lastUpdateTime: Date;
+}
+
 export function createMockSesService(options?: MockSesServiceOptions): MockSesService {
   let contactListCreated = false;
   const contacts = new Map<string, MockContact>();
   const sentEmails: SentEmail[] = [];
+  const suppressedDestinations = new Map<string, MockSuppressedDestination>();
 
   return {
     getSentEmails() {
@@ -196,6 +204,67 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
 
     async getMaxSendRate(): Promise<number> {
       return options?.maxSendRate ?? 14;
+    },
+
+    getSuppressedCount() {
+      return suppressedDestinations.size;
+    },
+
+    async listSuppressedDestinations(
+      opts?: { reasons?: string[]; startDate?: Date; endDate?: Date }
+    ): Promise<Array<{ email: string; reason: string; lastUpdateTime: Date }>> {
+      let results = Array.from(suppressedDestinations.values());
+
+      if (opts?.reasons && opts.reasons.length > 0) {
+        results = results.filter((d) => opts.reasons!.includes(d.reason));
+      }
+      if (opts?.startDate) {
+        results = results.filter((d) => d.lastUpdateTime >= opts.startDate!);
+      }
+      if (opts?.endDate) {
+        results = results.filter((d) => d.lastUpdateTime <= opts.endDate!);
+      }
+
+      return results.map((d) => ({
+        email: d.email,
+        reason: d.reason,
+        lastUpdateTime: d.lastUpdateTime,
+      }));
+    },
+
+    async getSuppressedDestination(
+      email: string
+    ): Promise<{
+      email: string;
+      reason: string;
+      lastUpdateTime: Date;
+      messageId?: string;
+      feedbackId?: string;
+    } | null> {
+      const dest = suppressedDestinations.get(email);
+      if (!dest) return null;
+      return {
+        email: dest.email,
+        reason: dest.reason,
+        lastUpdateTime: dest.lastUpdateTime,
+      };
+    },
+
+    async putSuppressedDestination(email: string, reason: string): Promise<void> {
+      suppressedDestinations.set(email, {
+        email,
+        reason,
+        lastUpdateTime: new Date(),
+      });
+    },
+
+    async deleteSuppressedDestination(email: string): Promise<void> {
+      if (!suppressedDestinations.has(email)) {
+        const error = new Error("Address not on suppression list");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      suppressedDestinations.delete(email);
     },
   };
 }

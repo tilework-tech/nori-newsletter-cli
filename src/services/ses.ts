@@ -8,6 +8,10 @@ import {
   DeleteContactCommand,
   SendEmailCommand,
   GetAccountCommand,
+  ListSuppressedDestinationsCommand,
+  GetSuppressedDestinationCommand,
+  PutSuppressedDestinationCommand,
+  DeleteSuppressedDestinationCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -63,6 +67,26 @@ export interface SesService {
   ): Promise<string>;
 
   getMaxSendRate(): Promise<number>;
+
+  listSuppressedDestinations(options?: {
+    reasons?: string[];
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<Array<{ email: string; reason: string; lastUpdateTime: Date }>>;
+
+  getSuppressedDestination(
+    email: string
+  ): Promise<{
+    email: string;
+    reason: string;
+    lastUpdateTime: Date;
+    messageId?: string;
+    feedbackId?: string;
+  } | null>;
+
+  putSuppressedDestination(email: string, reason: string): Promise<void>;
+
+  deleteSuppressedDestination(email: string): Promise<void>;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -315,6 +339,82 @@ export function createSesService(client: SESv2Client): SesService {
       } catch {
         return 1;
       }
+    },
+
+    async listSuppressedDestinations(
+      options?: { reasons?: string[]; startDate?: Date; endDate?: Date }
+    ): Promise<Array<{ email: string; reason: string; lastUpdateTime: Date }>> {
+      const results: Array<{ email: string; reason: string; lastUpdateTime: Date }> = [];
+      let nextToken: string | undefined;
+
+      do {
+        const response = await client.send(
+          new ListSuppressedDestinationsCommand({
+            Reasons: options?.reasons as ("BOUNCE" | "COMPLAINT")[] | undefined,
+            StartDate: options?.startDate,
+            EndDate: options?.endDate,
+            ...(nextToken && { NextToken: nextToken }),
+          })
+        );
+
+        if (response.SuppressedDestinationSummaries) {
+          for (const s of response.SuppressedDestinationSummaries) {
+            results.push({
+              email: s.EmailAddress!,
+              reason: s.Reason!,
+              lastUpdateTime: s.LastUpdateTime!,
+            });
+          }
+        }
+        nextToken = response.NextToken;
+      } while (nextToken);
+
+      return results;
+    },
+
+    async getSuppressedDestination(
+      email: string
+    ): Promise<{
+      email: string;
+      reason: string;
+      lastUpdateTime: Date;
+      messageId?: string;
+      feedbackId?: string;
+    } | null> {
+      try {
+        const response = await client.send(
+          new GetSuppressedDestinationCommand({ EmailAddress: email })
+        );
+
+        const dest = response.SuppressedDestination!;
+        return {
+          email: dest.EmailAddress!,
+          reason: dest.Reason!,
+          lastUpdateTime: dest.LastUpdateTime!,
+          messageId: dest.Attributes?.MessageId,
+          feedbackId: dest.Attributes?.FeedbackId,
+        };
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "NotFoundException") {
+          return null;
+        }
+        throw err;
+      }
+    },
+
+    async putSuppressedDestination(email: string, reason: string): Promise<void> {
+      await client.send(
+        new PutSuppressedDestinationCommand({
+          EmailAddress: email,
+          Reason: reason as "BOUNCE" | "COMPLAINT",
+        })
+      );
+    },
+
+    async deleteSuppressedDestination(email: string): Promise<void> {
+      await client.send(
+        new DeleteSuppressedDestinationCommand({ EmailAddress: email })
+      );
     },
   };
 }

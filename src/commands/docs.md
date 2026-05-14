@@ -5,7 +5,7 @@ Path: @/src/commands
 ### Overview
 
 - Contains all CLI command implementations, each exported as a factory function that receives `SesService`, `Output`, and a config getter via dependency injection
-- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), and sending newsletters
+- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), sending newsletters, and managing the SES account-level suppression list
 
 ### How it fits into the larger codebase
 
@@ -34,10 +34,21 @@ Path: @/src/commands
 
 - **`init` command** creates the SES contact list and topic. Idempotent -- reports success if the list already exists
 
+- **`suppression` command** manages the SES account-level suppression list (addresses that SES refuses to deliver to due to bounces or complaints). This is an account-level resource, not tied to any contact list:
+
+  | Subcommand | Purpose | Key service calls |
+  |---|---|---|
+  | `list` | Show suppressed addresses; filterable by `--reason` and date range | `listSuppressedDestinations` |
+  | `check <email>` | Show suppression details or error if not suppressed | `getSuppressedDestination` |
+  | `add <email>` | Manually suppress an address with `--reason` (BOUNCE/COMPLAINT) | `putSuppressedDestination` |
+  | `remove <email>` | Remove an address from the suppression list | `deleteSuppressedDestination` |
+
 ### Things to Know
 
 - **Error handling convention:** Commands catch only expected AWS errors at the boundary (`AlreadyExistsException`, `NotFoundException`) and let unexpected errors bubble up. The `update` and `status` subcommands verify the contact exists via `getContact` before proceeding, returning a user-facing error if not found
-- **Email validation:** Both `add` and `import` validate emails using `@/src/lib/validation.ts` before calling the service. Invalid emails are rejected (add) or skipped with a report (import)
+- **Error handling divergence in suppression commands:** `suppression check` relies on the service returning `null` for not-found (same pattern as `contacts status`). `suppression remove` catches `NotFoundException` at the command boundary because the service method lets the error propagate (same pattern as `contacts remove`). This is intentional -- see the matching patterns in `@/src/services/ses.ts`
+- **The suppression command does not depend on `newsletter.config.json`** for its SES calls because the suppression list is account-level. However, the factory still accepts `getConfig` for consistency with all other command factories
+- **Email validation:** Both `contacts add` and `contacts import` validate emails using `@/src/lib/validation.ts` before calling the service. The `suppression add` command also validates emails. Invalid emails are rejected (add) or skipped with a report (import)
 - **The `update` subcommand's resubscribe logic** maps over the contact's existing topic preferences and flips only the configured topic to `OPT_IN`, preserving other topic states. It also sets `unsubscribeAll: false`
 - **CSV import** uses `@/src/lib/csv.ts` for parsing. Expected columns are `email,name,company,added_date`. The `addedDate` field is stored as a contact attribute, not used for any date logic
 

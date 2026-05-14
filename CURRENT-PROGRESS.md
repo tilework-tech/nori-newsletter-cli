@@ -5,7 +5,7 @@
 | Feature | Status |
 |---------|--------|
 | 1. Unsubscribe Visibility | Done |
-| 2. Account-Level Suppression List | Not Started |
+| 2. Account-Level Suppression List | Done |
 | 3. Contact Updates | Done |
 | 4. Contact List Management | Not Started |
 | 5. Sending Statistics and Metrics | Not Started |
@@ -24,6 +24,22 @@ Added three new CLI capabilities:
 - `tests/helpers.ts` — Extended mock with new methods
 - `tests/commands/contacts.test.ts` — Added 10 new tests (64 total, all passing)
 
-## Next: Account-Level Suppression List
+## Completed: Account-Level Suppression List
 
-The next commit should add visibility into SES's account-level suppression list (bounced/complained addresses). Key operations: list, check, add, remove suppressed destinations. This is Tier 1 item #2.
+Added a `suppression` command group with four subcommands:
+
+- `suppression list` — lists suppressed addresses, filterable by `--reason` (BOUNCE/COMPLAINT) and `--start-date`/`--end-date` date range
+- `suppression check <email>` — shows details of a suppressed address (reason, date, message ID, feedback ID) or error if not suppressed
+- `suppression add <email> --reason <BOUNCE|COMPLAINT>` — manually adds an address to the suppression list (upsert behavior)
+- `suppression remove <email>` — removes an address from the suppression list
+
+### Files changed
+- `src/services/ses.ts` — Extended SesService with `listSuppressedDestinations`, `getSuppressedDestination`, `putSuppressedDestination`, `deleteSuppressedDestination`
+- `src/commands/suppression.ts` — New command file with four subcommands
+- `src/program.ts` — Registered the suppression command
+- `tests/helpers.ts` — Extended mock with in-memory suppression storage
+- `tests/commands/suppression.test.ts` — 14 new tests (78 total, all passing)
+
+## Next: Contact List Management
+
+The next commit should add visibility and management of SES contact lists. Key operations: list all contact lists, view details, update metadata/topics, delete a list. This is Tier 1 item #4.
