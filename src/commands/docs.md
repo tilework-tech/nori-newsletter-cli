@@ -5,7 +5,7 @@ Path: @/src/commands
 ### Overview
 
 - Contains all CLI command implementations, each exported as a factory function that receives `SesService`, `Output`, and a config getter via dependency injection
-- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), sending newsletters (individually via `send` or in batches via `bulk-send`), managing the SES account-level suppression list, managing contact lists (list, show, update, delete), viewing sending statistics/account health, managing reusable email templates with Handlebars personalization, and managing email/domain identity verification and DKIM configuration
+- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), sending newsletters (individually via `send` or in batches via `bulk-send`), managing the SES account-level suppression list, managing contact lists (list, show, update, delete), viewing sending statistics/account health, managing reusable email templates with Handlebars personalization, managing email/domain identity verification and DKIM configuration, and managing SES configuration sets with event destination routing
 
 ### How it fits into the larger codebase
 
@@ -92,11 +92,25 @@ Path: @/src/commands
 
   The `verify` subcommand auto-detects email vs domain from the SES API response type: for emails it displays a message about the verification email, for domains it displays the DKIM CNAME records that must be added to DNS. The `show` subcommand displays detailed DKIM configuration (status, signing enabled, key length, tokens with CNAME record format) and optional MAIL FROM domain settings
 
+- **`config-sets` command** manages SES configuration sets and their nested event destinations. Configuration sets control delivery options (TLS policy, dedicated IP pools), reputation tracking, suppression behavior, click/open tracking, and VDM settings. Event destinations route email events (bounces, complaints, opens, clicks, etc.) to observability targets. This is the first command with a nested sub-entity relationship (event destinations belong to a configuration set). Does not depend on `newsletter.config.json`:
+
+  | Subcommand | Purpose | Key service calls |
+  |---|---|---|
+  | `list` | Show all configuration sets in the SES account | `listConfigSets` |
+  | `create <name>` | Create a config set with optional delivery, reputation, suppression, tracking, and VDM options | `createConfigSet` |
+  | `show <name>` | Show full config set details including all option groups | `getConfigSet` |
+  | `delete <name>` | Permanently delete a configuration set | `deleteConfigSet` |
+  | `destinations <config-set>` | List event destinations for a config set | `getEventDestinations` |
+  | `add-destination <config-set> <dest-name>` | Add an event destination routing events to SNS, EventBridge, CloudWatch, or Kinesis Firehose | `createEventDestination` |
+  | `remove-destination <config-set> <dest-name>` | Remove an event destination | `deleteEventDestination` |
+
+  The `add-destination` subcommand performs client-side validation before calling the service: it validates event types against a whitelist (`SEND`, `BOUNCE`, `COMPLAINT`, `DELIVERY`, `OPEN`, `CLICK`, `REJECT`, `RENDERING_FAILURE`, `DELIVERY_DELAY`, `SUBSCRIPTION`) and enforces destination-type-specific required parameters (e.g., `--topic-arn` for SNS, `--stream-arn` + `--role-arn` for Firehose, `--dimension` for CloudWatch, `--bus-arn` for EventBridge). CloudWatch dimensions use a colon-delimited format: `name:valueSource:defaultValue`
+
 ### Things to Know
 
 - **Error handling convention:** Commands catch only expected AWS errors at the boundary (`AlreadyExistsException`, `NotFoundException`) and let unexpected errors bubble up. The `update` and `status` subcommands verify the contact exists via `getContact` before proceeding, returning a user-facing error if not found
-- **Error handling divergence across command groups:** For "get/show" operations, commands rely on the service returning `null` for not-found (e.g., `contacts status`, `suppression check`, `lists show`, `identities show`). For "delete/remove" operations, commands catch `NotFoundException` at the command boundary (e.g., `contacts remove`, `suppression remove`, `lists delete`, `identities delete`). For "create/verify" operations, commands catch `AlreadyExistsException` (e.g., `init`, `identities verify`). This split is intentional -- see the matching patterns in `@/src/services/ses.ts`
-- **The `suppression`, `lists`, `stats`, `templates`, and `identities` commands do not depend on `newsletter.config.json`** for their SES calls because they operate at the account level. However, all factories still accept `getConfig` for consistency with the shared command factory signature
+- **Error handling divergence across command groups:** For "get/show" operations, commands rely on the service returning `null` for not-found (e.g., `contacts status`, `suppression check`, `lists show`, `identities show`, `config-sets show`). For "delete/remove" operations, commands catch `NotFoundException` at the command boundary (e.g., `contacts remove`, `suppression remove`, `lists delete`, `identities delete`, `config-sets delete`, `config-sets remove-destination`). For "create/verify" operations, commands catch `AlreadyExistsException` (e.g., `init`, `identities verify`, `config-sets create`, `config-sets add-destination`). This split is intentional -- see the matching patterns in `@/src/services/ses.ts`
+- **The `suppression`, `lists`, `stats`, `templates`, `identities`, and `config-sets` commands do not depend on `newsletter.config.json`** for their SES calls because they operate at the account level. However, all factories still accept `getConfig` for consistency with the shared command factory signature
 - **`bulk-send` validates template existence before sending:** It calls `ses.getTemplate(templateName)` and exits with an error if the template is not found, preventing wasted API calls. Similarly, `--data` JSON is validated before any API interaction
 - **GET-then-PUT pattern for updates:** `lists update`, `contacts update`, and `templates update` all use this pattern to handle SES's full-replacement semantics. They fetch the current state, merge the caller's changes, and issue the update. For `lists update`, the `--add-topic` option uses a colon-delimited format (`topicName:displayName:OPT_IN|OPT_OUT`) where the display name may contain colons -- parsing splits on colons and uses the last segment as the status. For `templates update`, the GET-then-PUT is done at the command layer rather than the service layer
 - **Email validation:** Both `contacts add` and `contacts import` validate emails using `@/src/lib/validation.ts` before calling the service. The `suppression add` command also validates emails. Invalid emails are rejected (add) or skipped with a report (import)

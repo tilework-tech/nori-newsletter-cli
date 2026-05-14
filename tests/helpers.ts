@@ -62,6 +62,7 @@ export interface MockSesService extends SesService {
   getContactListCount(): number;
   getTemplateCount(): number;
   getIdentityCount(): number;
+  getConfigSetCount(): number;
 }
 
 export const TEST_CONFIG: NewsletterConfig = {
@@ -99,6 +100,43 @@ interface MockTemplate {
   createdTimestamp: Date;
 }
 
+interface MockConfigSet {
+  name: string;
+  deliveryOptions?: {
+    tlsPolicy?: string;
+    sendingPoolName?: string;
+    maxDeliverySeconds?: number;
+  };
+  reputationOptions?: {
+    reputationMetricsEnabled: boolean;
+    lastFreshStart?: Date;
+  };
+  sendingOptions?: {
+    sendingEnabled: boolean;
+  };
+  suppressionOptions?: {
+    suppressedReasons: string[];
+  };
+  trackingOptions?: {
+    customRedirectDomain: string;
+    httpsPolicy?: string;
+  };
+  vdmOptions?: {
+    engagementMetrics?: string;
+    optimizedSharedDelivery?: string;
+  };
+  tags: Array<{ key: string; value: string }>;
+  eventDestinations: Map<string, MockEventDestination>;
+}
+
+interface MockEventDestination {
+  name: string;
+  enabled: boolean;
+  matchingEventTypes: string[];
+  destinationType: string;
+  destinationDetails: Record<string, string | undefined>;
+}
+
 interface MockIdentity {
   name: string;
   type: string;
@@ -124,6 +162,7 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
   const suppressedDestinations = new Map<string, MockSuppressedDestination>();
   const templates = new Map<string, MockTemplate>();
   const identities = new Map<string, MockIdentity>();
+  const configSets = new Map<string, MockConfigSet>();
 
   return {
     getSentEmails() {
@@ -166,6 +205,10 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
 
     getIdentityCount() {
       return identities.size;
+    },
+
+    getConfigSetCount() {
+      return configSets.size;
     },
 
     async createContactList(name: string, topicName: string): Promise<void> {
@@ -641,6 +684,179 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
         throw error;
       }
       identities.delete(identity);
+    },
+
+    async createConfigSet(
+      name: string,
+      opts?: {
+        tlsPolicy?: string;
+        sendingPoolName?: string;
+        maxDeliverySeconds?: number;
+        reputationMetricsEnabled?: boolean;
+        sendingEnabled?: boolean;
+        suppressedReasons?: string[];
+        trackingDomain?: string;
+        trackingHttpsPolicy?: string;
+        vdmEngagementMetrics?: string;
+        vdmOptimizedDelivery?: string;
+      }
+    ): Promise<void> {
+      if (configSets.has(name)) {
+        const error = new Error("Configuration set already exists");
+        error.name = "AlreadyExistsException";
+        throw error;
+      }
+      configSets.set(name, {
+        name,
+        deliveryOptions:
+          opts?.tlsPolicy || opts?.sendingPoolName || opts?.maxDeliverySeconds
+            ? {
+                tlsPolicy: opts.tlsPolicy,
+                sendingPoolName: opts.sendingPoolName,
+                maxDeliverySeconds: opts.maxDeliverySeconds,
+              }
+            : undefined,
+        reputationOptions:
+          opts?.reputationMetricsEnabled !== undefined
+            ? { reputationMetricsEnabled: opts.reputationMetricsEnabled }
+            : undefined,
+        sendingOptions:
+          opts?.sendingEnabled !== undefined
+            ? { sendingEnabled: opts.sendingEnabled }
+            : undefined,
+        suppressionOptions: opts?.suppressedReasons
+          ? { suppressedReasons: opts.suppressedReasons }
+          : undefined,
+        trackingOptions: opts?.trackingDomain
+          ? {
+              customRedirectDomain: opts.trackingDomain,
+              httpsPolicy: opts.trackingHttpsPolicy,
+            }
+          : undefined,
+        vdmOptions:
+          opts?.vdmEngagementMetrics || opts?.vdmOptimizedDelivery
+            ? {
+                engagementMetrics: opts.vdmEngagementMetrics,
+                optimizedSharedDelivery: opts.vdmOptimizedDelivery,
+              }
+            : undefined,
+        tags: [],
+        eventDestinations: new Map(),
+      });
+    },
+
+    async getConfigSet(name: string) {
+      const cs = configSets.get(name);
+      if (!cs) return null;
+      return {
+        name: cs.name,
+        deliveryOptions: cs.deliveryOptions,
+        reputationOptions: cs.reputationOptions,
+        sendingOptions: cs.sendingOptions,
+        suppressionOptions: cs.suppressionOptions,
+        trackingOptions: cs.trackingOptions,
+        vdmOptions: cs.vdmOptions,
+        tags: cs.tags.map((t) => ({ ...t })),
+      };
+    },
+
+    async listConfigSets() {
+      return Array.from(configSets.values()).map((cs) => ({ name: cs.name }));
+    },
+
+    async deleteConfigSet(name: string) {
+      if (!configSets.has(name)) {
+        const error = new Error("Configuration set not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      configSets.delete(name);
+    },
+
+    async createEventDestination(
+      configSetName: string,
+      destName: string,
+      definition: {
+        enabled?: boolean;
+        matchingEventTypes: string[];
+        snsTopicArn?: string;
+        eventBridgeBusArn?: string;
+        kinesisStreamArn?: string;
+        kinesisRoleArn?: string;
+        cloudWatchDimensions?: Array<{
+          name: string;
+          valueSource: string;
+          defaultValue: string;
+        }>;
+      }
+    ): Promise<void> {
+      const cs = configSets.get(configSetName);
+      if (!cs) {
+        const error = new Error("Configuration set not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      if (cs.eventDestinations.has(destName)) {
+        const error = new Error("Event destination already exists");
+        error.name = "AlreadyExistsException";
+        throw error;
+      }
+
+      let destinationType = "UNKNOWN";
+      const destinationDetails: Record<string, string | undefined> = {};
+
+      if (definition.snsTopicArn) {
+        destinationType = "SNS";
+        destinationDetails.topicArn = definition.snsTopicArn;
+      } else if (definition.eventBridgeBusArn) {
+        destinationType = "EventBridge";
+        destinationDetails.eventBusArn = definition.eventBridgeBusArn;
+      } else if (definition.kinesisStreamArn && definition.kinesisRoleArn) {
+        destinationType = "Kinesis Firehose";
+        destinationDetails.deliveryStreamArn = definition.kinesisStreamArn;
+        destinationDetails.iamRoleArn = definition.kinesisRoleArn;
+      } else if (definition.cloudWatchDimensions) {
+        destinationType = "CloudWatch";
+      }
+
+      cs.eventDestinations.set(destName, {
+        name: destName,
+        enabled: definition.enabled ?? true,
+        matchingEventTypes: definition.matchingEventTypes,
+        destinationType,
+        destinationDetails,
+      });
+    },
+
+    async getEventDestinations(configSetName: string) {
+      const cs = configSets.get(configSetName);
+      if (!cs) {
+        const error = new Error("Configuration set not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      return Array.from(cs.eventDestinations.values()).map((d) => ({
+        name: d.name,
+        enabled: d.enabled,
+        matchingEventTypes: [...d.matchingEventTypes],
+        destinationType: d.destinationType,
+        destinationDetails: { ...d.destinationDetails },
+      }));
+    },
+
+    async deleteEventDestination(configSetName: string, destName: string) {
+      const cs = configSets.get(configSetName);
+      if (!cs) {
+        const error = new Error("Configuration set not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      if (!cs.eventDestinations.has(destName)) {
+        const error = new Error("Event destination not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      cs.eventDestinations.delete(destName);
     },
   };
 }

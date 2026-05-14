@@ -81,7 +81,7 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | 6. Email Templates | Done |
 | 7. Bulk Send | Done |
 | 8. Identity and Domain Management | Done |
-| 9. Configuration Sets and Event Destinations | Not started |
+| 9. Configuration Sets and Event Destinations | Done |
 | 10. Email Address Validation | Not started |
 | 11. Bulk Import/Export via S3 | Not started |
 
@@ -137,3 +137,24 @@ Added an `identities` command group with four subcommands:
 - `src/program.ts` — Registered the identities command, updated program description
 - `tests/helpers.ts` — Extended mock with `MockIdentity` in-memory storage, email-vs-domain auto-detection, DKIM token generation for domains
 - `tests/commands/identities.test.ts` — 10 new tests (144 total, all passing)
+
+## Completed: Configuration Sets and Event Destinations
+
+Added a `config-sets` command group with seven subcommands for managing SES configuration sets and their event destinations:
+
+- `config-sets list` — lists all configuration sets in the SES account
+- `config-sets create <name>` — creates a configuration set with optional delivery (`--tls`), reputation (`--reputation-metrics`), suppression (`--suppression-reasons`), tracking (`--tracking-domain`), and VDM (`--vdm-engagement`, `--vdm-optimized-delivery`) settings
+- `config-sets show <name>` — displays full config set details including all configured options
+- `config-sets delete <name>` — deletes a configuration set, handles NotFoundException
+- `config-sets destinations <name>` — lists event destinations for a config set, showing destination name, type, enabled status, and matched event types
+- `config-sets add-destination <config-set> <dest-name>` — adds an event destination. Supports four destination types: SNS (`--topic-arn`), EventBridge (`--bus-arn`), Kinesis Firehose (`--stream-arn` + `--role-arn`), and CloudWatch (`--dimension`). Requires `--type` and `--events` (comma-separated event types). Validates destination-type-specific required parameters client-side before API call.
+- `config-sets remove-destination <config-set> <dest-name>` — removes an event destination
+
+Event destinations are the first nested sub-entity in the CLI — they belong to a configuration set rather than being top-level. The mock storage reflects this with a Map inside each MockConfigSet.
+
+### Files changed
+- `src/services/ses.ts` — Extended SesService interface with `createConfigSet`, `getConfigSet`, `listConfigSets`, `deleteConfigSet`, `createEventDestination`, `getEventDestinations`, `deleteEventDestination`. Uses 7 new AWS SDK commands.
+- `src/commands/config-sets.ts` — New command file with seven subcommands
+- `src/program.ts` — Registered the config-sets command, updated program description
+- `tests/helpers.ts` — Extended mock with `MockConfigSet` and `MockEventDestination` in-memory storage, `getConfigSetCount()` inspector
+- `tests/commands/config-sets.test.ts` — 25 new tests (170 total, all passing)

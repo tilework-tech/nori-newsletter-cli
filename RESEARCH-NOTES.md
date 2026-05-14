@@ -310,6 +310,73 @@ SUCCESS, MESSAGE_REJECTED, MAIL_FROM_DOMAIN_NOT_VERIFIED, CONFIGURATION_SET_NOT_
 - Rate limiting is per-recipient within a batch — a batch of 50 can partially throttle
 - Inline templates don't support Handlebars conditionals/loops
 
+## Configuration Set and Event Destination APIs
+
+### Configuration Set Commands
+- `CreateConfigurationSetCommand` — params: `ConfigurationSetName` (required, max 64 chars alphanumeric/hyphens/underscores), `DeliveryOptions?`, `ReputationOptions?`, `SendingOptions?`, `SuppressionOptions?`, `TrackingOptions?`, `VdmOptions?`, `Tags?`
+- Response: empty `{}`
+- Errors: `AlreadyExistsException`, `LimitExceededException` (10,000 per region max), `ConcurrentModificationException`
+- `GetConfigurationSetCommand` — param: `ConfigurationSetName` (required)
+- Returns: all fields from create (ConfigurationSetName, DeliveryOptions, ReputationOptions, SendingOptions, SuppressionOptions, TrackingOptions, VdmOptions, Tags)
+- Errors: `NotFoundException`
+- `ListConfigurationSetsCommand` — params: `NextToken?`, `PageSize?`
+- Response: `{ ConfigurationSets?: string[], NextToken? }` — returns only names, not full objects
+- Must call GetConfigurationSet per name for details
+- `DeleteConfigurationSetCommand` — param: `ConfigurationSetName` (required)
+- Errors: `NotFoundException`, `ConcurrentModificationException`
+
+### Event Destination Commands
+- `CreateConfigurationSetEventDestinationCommand` — params: `ConfigurationSetName` (required, path), `EventDestinationName` (required), `EventDestination` (required, EventDestinationDefinition)
+- Max 10 event destinations per config set
+- Errors: `AlreadyExistsException`, `LimitExceededException`, `NotFoundException` (config set)
+- `GetConfigurationSetEventDestinationsCommand` — param: `ConfigurationSetName`
+- Response: `{ EventDestinations?: EventDestination[] }` — NO pagination, all destinations returned at once (max 10)
+- `UpdateConfigurationSetEventDestinationCommand` — params: `ConfigurationSetName`, `EventDestinationName` (both path params), `EventDestination` (body)
+- **FULL REPLACEMENT** — must re-specify all fields
+- Cannot rename an event destination
+- `DeleteConfigurationSetEventDestinationCommand` — params: `ConfigurationSetName`, `EventDestinationName`
+- Errors: `NotFoundException`
+
+### EventDestinationDefinition (write type)
+```typescript
+interface EventDestinationDefinition {
+  Enabled?: boolean;
+  MatchingEventTypes?: EventType[];
+  KinesisFirehoseDestination?: { DeliveryStreamArn: string; IamRoleArn: string };
+  CloudWatchDestination?: { DimensionConfigurations: CloudWatchDimensionConfiguration[] };
+  SnsDestination?: { TopicArn: string };
+  EventBridgeDestination?: { EventBusArn: string };
+}
+```
+
+### EventType Enum
+SEND, REJECT, BOUNCE, COMPLAINT, DELIVERY, OPEN, CLICK, RENDERING_FAILURE, DELIVERY_DELAY, SUBSCRIPTION
+
+### Destination Types
+- **SNS**: `{ TopicArn: string }` — simplest, just an ARN
+- **EventBridge**: `{ EventBusArn: string }` — just the bus ARN
+- **CloudWatch**: `{ DimensionConfigurations: [{ DimensionName, DimensionValueSource, DefaultDimensionValue }] }`
+  - DimensionValueSource: MESSAGE_TAG | EMAIL_HEADER | LINK_TAG
+  - Max 10 dimensions per destination
+- **Kinesis Firehose**: `{ DeliveryStreamArn: string, IamRoleArn: string }` — needs both stream and role
+
+### Configuration Set Options Types
+- `DeliveryOptions`: `{ TlsPolicy?: "REQUIRE"|"OPTIONAL", SendingPoolName?: string, MaxDeliverySeconds?: number }`
+- `ReputationOptions`: `{ ReputationMetricsEnabled?: boolean, LastFreshStart?: Date }`
+- `SendingOptions`: `{ SendingEnabled?: boolean }`
+- `SuppressionOptions`: `{ SuppressedReasons?: ("BOUNCE"|"COMPLAINT")[] }`
+- `TrackingOptions`: `{ CustomRedirectDomain: string, HttpsPolicy?: "REQUIRE"|"REQUIRE_OPEN_ONLY"|"OPTIONAL" }`
+  - CustomRedirectDomain is REQUIRED if TrackingOptions is provided at all
+- `VdmOptions`: `{ DashboardOptions?: { EngagementMetrics?: "ENABLED"|"DISABLED" }, GuardianOptions?: { OptimizedSharedDelivery?: "ENABLED"|"DISABLED" } }`
+
+### Key Quirks
+- ListConfigurationSets returns only names — N+1 calls needed for details
+- Only ONE destination type per event destination — use multiple destinations to fan out
+- UpdateConfigurationSetEventDestination is full replacement (HTTP PUT)
+- API rate limit: 1 req/sec for all management operations
+- TrackingOptions.CustomRedirectDomain is required if TrackingOptions is included at all
+- OPEN/CLICK tracking requires VDM DashboardOptions or TrackingOptions to inject tracking pixels/link rewriting
+
 ## Identity and Domain Management APIs
 
 ### CreateEmailIdentityCommand

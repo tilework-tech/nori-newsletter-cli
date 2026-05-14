@@ -28,6 +28,13 @@ import {
   GetEmailIdentityCommand,
   ListEmailIdentitiesCommand,
   DeleteEmailIdentityCommand,
+  CreateConfigurationSetCommand,
+  GetConfigurationSetCommand,
+  ListConfigurationSetsCommand,
+  DeleteConfigurationSetCommand,
+  CreateConfigurationSetEventDestinationCommand,
+  GetConfigurationSetEventDestinationsCommand,
+  DeleteConfigurationSetEventDestinationCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -235,6 +242,91 @@ export interface SesService {
   } | null>;
 
   deleteIdentity(identity: string): Promise<void>;
+
+  createConfigSet(
+    name: string,
+    options?: {
+      tlsPolicy?: string;
+      sendingPoolName?: string;
+      maxDeliverySeconds?: number;
+      reputationMetricsEnabled?: boolean;
+      sendingEnabled?: boolean;
+      suppressedReasons?: string[];
+      trackingDomain?: string;
+      trackingHttpsPolicy?: string;
+      vdmEngagementMetrics?: string;
+      vdmOptimizedDelivery?: string;
+    }
+  ): Promise<void>;
+
+  getConfigSet(
+    name: string
+  ): Promise<{
+    name: string;
+    deliveryOptions?: {
+      tlsPolicy?: string;
+      sendingPoolName?: string;
+      maxDeliverySeconds?: number;
+    };
+    reputationOptions?: {
+      reputationMetricsEnabled: boolean;
+      lastFreshStart?: Date;
+    };
+    sendingOptions?: {
+      sendingEnabled: boolean;
+    };
+    suppressionOptions?: {
+      suppressedReasons: string[];
+    };
+    trackingOptions?: {
+      customRedirectDomain: string;
+      httpsPolicy?: string;
+    };
+    vdmOptions?: {
+      engagementMetrics?: string;
+      optimizedSharedDelivery?: string;
+    };
+    tags: Array<{ key: string; value: string }>;
+  } | null>;
+
+  listConfigSets(): Promise<Array<{ name: string }>>;
+
+  deleteConfigSet(name: string): Promise<void>;
+
+  createEventDestination(
+    configSetName: string,
+    destName: string,
+    definition: {
+      enabled?: boolean;
+      matchingEventTypes: string[];
+      snsTopicArn?: string;
+      eventBridgeBusArn?: string;
+      kinesisStreamArn?: string;
+      kinesisRoleArn?: string;
+      cloudWatchDimensions?: Array<{
+        name: string;
+        valueSource: string;
+        defaultValue: string;
+      }>;
+    }
+  ): Promise<void>;
+
+  getEventDestinations(
+    configSetName: string
+  ): Promise<
+    Array<{
+      name: string;
+      enabled: boolean;
+      matchingEventTypes: string[];
+      destinationType: string;
+      destinationDetails: Record<string, string | undefined>;
+    }>
+  >;
+
+  deleteEventDestination(
+    configSetName: string,
+    destName: string
+  ): Promise<void>;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -929,6 +1021,291 @@ export function createSesService(client: SESv2Client): SesService {
     async deleteIdentity(identity: string) {
       await client.send(
         new DeleteEmailIdentityCommand({ EmailIdentity: identity })
+      );
+    },
+
+    async createConfigSet(
+      name: string,
+      options?: {
+        tlsPolicy?: string;
+        sendingPoolName?: string;
+        maxDeliverySeconds?: number;
+        reputationMetricsEnabled?: boolean;
+        sendingEnabled?: boolean;
+        suppressedReasons?: string[];
+        trackingDomain?: string;
+        trackingHttpsPolicy?: string;
+        vdmEngagementMetrics?: string;
+        vdmOptimizedDelivery?: string;
+      }
+    ): Promise<void> {
+      await client.send(
+        new CreateConfigurationSetCommand({
+          ConfigurationSetName: name,
+          ...(options?.tlsPolicy || options?.sendingPoolName || options?.maxDeliverySeconds
+            ? {
+                DeliveryOptions: {
+                  TlsPolicy: options.tlsPolicy as "REQUIRE" | "OPTIONAL" | undefined,
+                  SendingPoolName: options.sendingPoolName,
+                  MaxDeliverySeconds: options.maxDeliverySeconds,
+                },
+              }
+            : {}),
+          ...(options?.reputationMetricsEnabled !== undefined
+            ? {
+                ReputationOptions: {
+                  ReputationMetricsEnabled: options.reputationMetricsEnabled,
+                },
+              }
+            : {}),
+          ...(options?.sendingEnabled !== undefined
+            ? { SendingOptions: { SendingEnabled: options.sendingEnabled } }
+            : {}),
+          ...(options?.suppressedReasons
+            ? {
+                SuppressionOptions: {
+                  SuppressedReasons: options.suppressedReasons as ("BOUNCE" | "COMPLAINT")[],
+                },
+              }
+            : {}),
+          ...(options?.trackingDomain
+            ? {
+                TrackingOptions: {
+                  CustomRedirectDomain: options.trackingDomain,
+                  HttpsPolicy: options.trackingHttpsPolicy as
+                    | "REQUIRE"
+                    | "REQUIRE_OPEN_ONLY"
+                    | "OPTIONAL"
+                    | undefined,
+                },
+              }
+            : {}),
+          ...(options?.vdmEngagementMetrics || options?.vdmOptimizedDelivery
+            ? {
+                VdmOptions: {
+                  ...(options.vdmEngagementMetrics
+                    ? {
+                        DashboardOptions: {
+                          EngagementMetrics: options.vdmEngagementMetrics as
+                            | "ENABLED"
+                            | "DISABLED",
+                        },
+                      }
+                    : {}),
+                  ...(options.vdmOptimizedDelivery
+                    ? {
+                        GuardianOptions: {
+                          OptimizedSharedDelivery: options.vdmOptimizedDelivery as
+                            | "ENABLED"
+                            | "DISABLED",
+                        },
+                      }
+                    : {}),
+                },
+              }
+            : {}),
+        })
+      );
+    },
+
+    async getConfigSet(name: string) {
+      try {
+        const response = await client.send(
+          new GetConfigurationSetCommand({ ConfigurationSetName: name })
+        );
+
+        return {
+          name: response.ConfigurationSetName!,
+          deliveryOptions: response.DeliveryOptions
+            ? {
+                tlsPolicy: response.DeliveryOptions.TlsPolicy,
+                sendingPoolName: response.DeliveryOptions.SendingPoolName,
+                maxDeliverySeconds: response.DeliveryOptions.MaxDeliverySeconds,
+              }
+            : undefined,
+          reputationOptions: response.ReputationOptions
+            ? {
+                reputationMetricsEnabled:
+                  response.ReputationOptions.ReputationMetricsEnabled ?? false,
+                lastFreshStart: response.ReputationOptions.LastFreshStart,
+              }
+            : undefined,
+          sendingOptions: response.SendingOptions
+            ? {
+                sendingEnabled: response.SendingOptions.SendingEnabled ?? true,
+              }
+            : undefined,
+          suppressionOptions: response.SuppressionOptions?.SuppressedReasons
+            ? {
+                suppressedReasons: response.SuppressionOptions.SuppressedReasons as string[],
+              }
+            : undefined,
+          trackingOptions: response.TrackingOptions?.CustomRedirectDomain
+            ? {
+                customRedirectDomain: response.TrackingOptions.CustomRedirectDomain,
+                httpsPolicy: response.TrackingOptions.HttpsPolicy,
+              }
+            : undefined,
+          vdmOptions:
+            response.VdmOptions?.DashboardOptions || response.VdmOptions?.GuardianOptions
+              ? {
+                  engagementMetrics:
+                    response.VdmOptions?.DashboardOptions?.EngagementMetrics,
+                  optimizedSharedDelivery:
+                    response.VdmOptions?.GuardianOptions?.OptimizedSharedDelivery,
+                }
+              : undefined,
+          tags: (response.Tags ?? []).map((t) => ({
+            key: t.Key!,
+            value: t.Value!,
+          })),
+        };
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "NotFoundException") {
+          return null;
+        }
+        throw err;
+      }
+    },
+
+    async listConfigSets() {
+      const results: Array<{ name: string }> = [];
+      let nextToken: string | undefined;
+
+      do {
+        const response = await client.send(
+          new ListConfigurationSetsCommand({
+            ...(nextToken && { NextToken: nextToken }),
+          })
+        );
+
+        if (response.ConfigurationSets) {
+          for (const name of response.ConfigurationSets) {
+            results.push({ name });
+          }
+        }
+        nextToken = response.NextToken;
+      } while (nextToken);
+
+      return results;
+    },
+
+    async deleteConfigSet(name: string) {
+      await client.send(
+        new DeleteConfigurationSetCommand({ ConfigurationSetName: name })
+      );
+    },
+
+    async createEventDestination(
+      configSetName: string,
+      destName: string,
+      definition: {
+        enabled?: boolean;
+        matchingEventTypes: string[];
+        snsTopicArn?: string;
+        eventBridgeBusArn?: string;
+        kinesisStreamArn?: string;
+        kinesisRoleArn?: string;
+        cloudWatchDimensions?: Array<{
+          name: string;
+          valueSource: string;
+          defaultValue: string;
+        }>;
+      }
+    ): Promise<void> {
+      await client.send(
+        new CreateConfigurationSetEventDestinationCommand({
+          ConfigurationSetName: configSetName,
+          EventDestinationName: destName,
+          EventDestination: {
+            Enabled: definition.enabled ?? true,
+            MatchingEventTypes: definition.matchingEventTypes as Array<
+              | "SEND"
+              | "REJECT"
+              | "BOUNCE"
+              | "COMPLAINT"
+              | "DELIVERY"
+              | "OPEN"
+              | "CLICK"
+              | "RENDERING_FAILURE"
+              | "DELIVERY_DELAY"
+              | "SUBSCRIPTION"
+            >,
+            ...(definition.snsTopicArn
+              ? { SnsDestination: { TopicArn: definition.snsTopicArn } }
+              : {}),
+            ...(definition.eventBridgeBusArn
+              ? { EventBridgeDestination: { EventBusArn: definition.eventBridgeBusArn } }
+              : {}),
+            ...(definition.kinesisStreamArn && definition.kinesisRoleArn
+              ? {
+                  KinesisFirehoseDestination: {
+                    DeliveryStreamArn: definition.kinesisStreamArn,
+                    IamRoleArn: definition.kinesisRoleArn,
+                  },
+                }
+              : {}),
+            ...(definition.cloudWatchDimensions
+              ? {
+                  CloudWatchDestination: {
+                    DimensionConfigurations: definition.cloudWatchDimensions.map((d) => ({
+                      DimensionName: d.name,
+                      DimensionValueSource: d.valueSource as
+                        | "MESSAGE_TAG"
+                        | "EMAIL_HEADER"
+                        | "LINK_TAG",
+                      DefaultDimensionValue: d.defaultValue,
+                    })),
+                  },
+                }
+              : {}),
+          },
+        })
+      );
+    },
+
+    async getEventDestinations(configSetName: string) {
+      const response = await client.send(
+        new GetConfigurationSetEventDestinationsCommand({
+          ConfigurationSetName: configSetName,
+        })
+      );
+
+      return (response.EventDestinations ?? []).map((dest) => {
+        let destinationType = "UNKNOWN";
+        const destinationDetails: Record<string, string | undefined> = {};
+
+        if (dest.SnsDestination) {
+          destinationType = "SNS";
+          destinationDetails.topicArn = dest.SnsDestination.TopicArn;
+        } else if (dest.EventBridgeDestination) {
+          destinationType = "EventBridge";
+          destinationDetails.eventBusArn = dest.EventBridgeDestination.EventBusArn;
+        } else if (dest.KinesisFirehoseDestination) {
+          destinationType = "Kinesis Firehose";
+          destinationDetails.deliveryStreamArn =
+            dest.KinesisFirehoseDestination.DeliveryStreamArn;
+          destinationDetails.iamRoleArn = dest.KinesisFirehoseDestination.IamRoleArn;
+        } else if (dest.CloudWatchDestination) {
+          destinationType = "CloudWatch";
+        }
+
+        return {
+          name: dest.Name!,
+          enabled: dest.Enabled ?? true,
+          matchingEventTypes: (dest.MatchingEventTypes ?? []) as string[],
+          destinationType,
+          destinationDetails,
+        };
+      });
+    },
+
+    async deleteEventDestination(configSetName: string, destName: string) {
+      await client.send(
+        new DeleteConfigurationSetEventDestinationCommand({
+          ConfigurationSetName: configSetName,
+          EventDestinationName: destName,
+        })
       );
     },
   };
