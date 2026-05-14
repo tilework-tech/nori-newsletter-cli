@@ -9,6 +9,7 @@ import { createSuppressionCommand } from "./commands/suppression.js";
 import { createListsCommand } from "./commands/lists.js";
 import { createStatsCommand } from "./commands/stats.js";
 import { createTemplatesCommand } from "./commands/templates.js";
+import { createBulkSendCommand } from "./commands/bulk-send.js";
 
 export function createProgram(
   ses: SesService,
@@ -23,7 +24,8 @@ export function createProgram(
     .description(
       "CLI for managing and sending newsletters via AWS SES. " +
         "Use 'init' to set up a contact list, 'contacts' to manage subscribers, " +
-        "'send' to deliver newsletters, 'suppression' to manage the account suppression list, " +
+        "'send' to deliver newsletters, 'bulk-send' to send templated emails in bulk, " +
+        "'suppression' to manage the account suppression list, " +
         "'lists' to manage contact lists, 'stats' to view sending statistics, " +
         "and 'templates' to manage reusable email templates."
     )
@@ -66,6 +68,7 @@ Environment variables:
   program.addCommand(createListsCommand(ses, out, getConfig));
   program.addCommand(createStatsCommand(ses, out, getConfig));
   program.addCommand(createTemplatesCommand(ses, out, getConfig));
+  program.addCommand(createBulkSendCommand(ses, out, getConfig));
 
   return program;
 }

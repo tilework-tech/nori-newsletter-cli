@@ -5,7 +5,7 @@ Path: @/src/commands
 ### Overview
 
 - Contains all CLI command implementations, each exported as a factory function that receives `SesService`, `Output`, and a config getter via dependency injection
-- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), sending newsletters, managing the SES account-level suppression list, managing contact lists (list, show, update, delete), viewing sending statistics/account health, and managing reusable email templates with Handlebars personalization
+- Commands cover the full newsletter workflow: initializing the SES contact list, managing subscriber contacts (add, import, list, status, update, remove), sending newsletters (individually via `send` or in batches via `bulk-send`), managing the SES account-level suppression list, managing contact lists (list, show, update, delete), viewing sending statistics/account health, and managing reusable email templates with Handlebars personalization
 
 ### How it fits into the larger codebase
 
@@ -30,7 +30,14 @@ Path: @/src/commands
   | `update <email>` | Update attributes (`--name`, `--company`) and/or `--resubscribe` | `getContact` then `updateContact` |
   | `remove <email>` | Permanently delete a contact | `deleteContact` |
 
-- **`send` command** reads an HTML file, extracts the subject from the `<title>` tag, fetches opted-in subscribers, and sends individually with rate throttling via `p-throttle`. Supports `--test` (send to specific emails) and `--dry-run` (preview only). Uses `Promise.allSettled` so individual failures do not abort the batch
+- **`send` command** reads an HTML file, extracts the subject from the `<title>` tag, fetches opted-in subscribers, and sends individually via `SendEmail` with rate throttling via `p-throttle`. Supports `--test` (send to specific emails) and `--dry-run` (preview only). Uses `Promise.allSettled` so individual failures do not abort the batch. Uses `ListManagementOptions` to enable SES-managed unsubscribe links
+
+- **`bulk-send` command** sends a pre-existing SES template to multiple recipients using the `SendBulkEmail` API, which batches up to 50 recipients per API call (constant `BATCH_SIZE`). Requires a template created via the `templates` command. Supports `--data` (default template data as JSON), `--test` (send to specific emails, bypassing the contact list), and `--dry-run` (preview only). Key differences from `send`:
+  - Uses `sendBulkEmail` instead of per-recipient `sendEmail` calls, reducing API overhead for large lists
+  - `SendBulkEmail` does **not** support `ListManagementOptions`, so no automatic unsubscribe links are injected. The command filters out unsubscribed contacts client-side by fetching opted-in contacts via `listContacts`
+  - Throttling is per-batch rather than per-recipient: `batchesPerSecond = floor(effectiveRate / 50)`
+  - Returns per-recipient success/failure results from the SES API response. Partial failures are reported individually and set exit code 1
+  - The command is a separate top-level command (not a subcommand of `send`) to preserve backward compatibility with `send <html-file>`
 
 - **`init` command** creates the SES contact list and topic. Idempotent -- reports success if the list already exists
 
@@ -79,6 +86,7 @@ Path: @/src/commands
 - **Error handling convention:** Commands catch only expected AWS errors at the boundary (`AlreadyExistsException`, `NotFoundException`) and let unexpected errors bubble up. The `update` and `status` subcommands verify the contact exists via `getContact` before proceeding, returning a user-facing error if not found
 - **Error handling divergence across command groups:** For "get/show" operations, commands rely on the service returning `null` for not-found (e.g., `contacts status`, `suppression check`, `lists show`). For "delete/remove" operations, commands catch `NotFoundException` at the command boundary (e.g., `contacts remove`, `suppression remove`, `lists delete`). This split is intentional -- see the matching patterns in `@/src/services/ses.ts`
 - **The `suppression`, `lists`, `stats`, and `templates` commands do not depend on `newsletter.config.json`** for their SES calls because they operate at the account level. However, all factories still accept `getConfig` for consistency with the shared command factory signature
+- **`bulk-send` validates template existence before sending:** It calls `ses.getTemplate(templateName)` and exits with an error if the template is not found, preventing wasted API calls. Similarly, `--data` JSON is validated before any API interaction
 - **GET-then-PUT pattern for updates:** `lists update`, `contacts update`, and `templates update` all use this pattern to handle SES's full-replacement semantics. They fetch the current state, merge the caller's changes, and issue the update. For `lists update`, the `--add-topic` option uses a colon-delimited format (`topicName:displayName:OPT_IN|OPT_OUT`) where the display name may contain colons -- parsing splits on colons and uses the last segment as the status. For `templates update`, the GET-then-PUT is done at the command layer rather than the service layer
 - **Email validation:** Both `contacts add` and `contacts import` validate emails using `@/src/lib/validation.ts` before calling the service. The `suppression add` command also validates emails. Invalid emails are rejected (add) or skipped with a report (import)
 - **The `update` subcommand's resubscribe logic** maps over the contact's existing topic preferences and flips only the configured topic to `OPT_IN`, preserving other topic states. It also sets `unsubscribeAll: false`

@@ -219,3 +219,93 @@ interface Tag {
 - **20,000 templates per region** (not adjustable)
 - **500 KB max per template** (not adjustable)
 - **TestRenderEmailTemplate returns MIME**: Need to extract HTML content from MIME boundaries for preview
+
+## SendBulkEmail API
+
+### API Command and Types
+- `SendBulkEmailCommand` from `@aws-sdk/client-sesv2`
+- **Required params**: `DefaultContent` (template reference or inline content), `BulkEmailEntries` (array of recipients)
+- **Optional**: `FromEmailAddress`, `ReplyToAddresses`, `FeedbackForwardingEmailAddress`, `DefaultEmailTags`, `ConfigurationSetName`
+
+### Request Shape
+```typescript
+{
+  DefaultContent: {
+    Template: {
+      TemplateName?: string;       // stored template reference
+      TemplateArn?: string;        // alternative to TemplateName
+      TemplateContent?: {          // inline template (simple substitutions only)
+        Subject?: string;
+        Html?: string;
+        Text?: string;
+      };
+      TemplateData?: string;       // default replacement JSON string
+    }
+  },
+  BulkEmailEntries: [{
+    Destination: {                 // REQUIRED
+      ToAddresses?: string[];
+      CcAddresses?: string[];
+      BccAddresses?: string[];
+    };
+    ReplacementEmailContent?: {
+      ReplacementTemplate?: {
+        ReplacementTemplateData?: string;  // per-recipient JSON, max 262144 chars
+      }
+    };
+    ReplacementTags?: MessageTag[];
+    ReplacementHeaders?: MessageHeader[];  // max 15 per entry
+  }]
+}
+```
+
+### Response Shape
+```typescript
+{
+  BulkEmailEntryResults?: [{
+    Status?: BulkEmailStatus;  // SUCCESS, MESSAGE_REJECTED, ACCOUNT_THROTTLED, etc.
+    Error?: string;            // detail on failure
+    MessageId?: string;        // only populated on SUCCESS
+  }]
+}
+```
+
+### BulkEmailStatus Values (14 total)
+SUCCESS, MESSAGE_REJECTED, MAIL_FROM_DOMAIN_NOT_VERIFIED, CONFIGURATION_SET_NOT_FOUND, TEMPLATE_NOT_FOUND, ACCOUNT_SUSPENDED, ACCOUNT_THROTTLED, ACCOUNT_DAILY_QUOTA_EXCEEDED, INVALID_SENDING_POOL_NAME, ACCOUNT_SENDING_PAUSED, CONFIGURATION_SET_SENDING_PAUSED, INVALID_PARAMETER, TRANSIENT_FAILURE, FAILED
+
+### Limits
+- **Max destinations per call**: 50 (hard limit, not adjustable)
+- **Each recipient counts individually** against sending quota
+- **Sending rate**: Per-recipient, same as SendEmail (sandbox: 1/sec, production varies)
+- **ReplacementTemplateData**: max 262,144 characters per entry
+- **ReplacementHeaders**: max 15 per entry
+
+### Critical Limitation: No ListManagementOptions
+- `ListManagementOptions` is **NOT available** on `SendBulkEmail` — only on `SendEmail`
+- This means no automatic unsubscribe link management, no `{{amazonSESUnsubscribeUrl}}`, no automatic contact preference updates
+- GitHub issue aws-sdk-js-v3 #5495 closed as "not planned"
+- Workaround: fetch contacts separately via `ListContacts`, filter by subscription status, send via bulk without unsubscribe management
+
+### Template Data Merge Semantics
+- `DefaultContent.Template.TemplateData` provides defaults
+- `ReplacementTemplateData` is a **full replacement, NOT a merge** of keys
+- If recipient provides partial keys, missing keys render as empty — they do NOT fall back to defaults
+- Fallback to `TemplateData` only happens when `ReplacementTemplateData` is `"{}"` or omitted entirely
+
+### Inline vs Stored Templates
+- Stored templates (`TemplateName`): support full Handlebars (`{{#if}}`, `{{#each}}`, nested paths)
+- Inline templates (`TemplateContent`): only simple `{{variable}}` substitution
+- Cannot use both simultaneously
+
+### Error Handling
+- HTTP 200 even when individual entries fail — partial success/failure
+- One `BulkEmailEntryResult` per `BulkEmailEntry` in same order
+- Retriable statuses: `ACCOUNT_THROTTLED`, `TRANSIENT_FAILURE`, `FAILED`
+- Permanent failures: `MESSAGE_REJECTED`, `ACCOUNT_SUSPENDED`, etc.
+- Batch-level HTTP errors (400/404/429) indicate entire call failed before processing
+
+### Key Quirks
+- No ListManagementOptions — biggest gap vs SendEmail
+- Rendering failures are silent (SES accepts but email never delivers)
+- Rate limiting is per-recipient within a batch — a batch of 50 can partially throttle
+- Inline templates don't support Handlebars conditionals/loops

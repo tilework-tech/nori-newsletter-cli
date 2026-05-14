@@ -79,7 +79,7 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | Feature | Status |
 |---------|--------|
 | 6. Email Templates | Done |
-| 7. Bulk Send | Not started |
+| 7. Bulk Send | Done |
 | 8. Identity and Domain Management | Not started |
 | 9. Configuration Sets and Event Destinations | Not started |
 | 10. Email Address Validation | Not started |
@@ -102,3 +102,22 @@ Added a `templates` command group with six subcommands:
 - `src/program.ts` — Registered the templates command, updated program description
 - `tests/helpers.ts` — Extended mock with in-memory template storage, basic Handlebars substitution for testRenderTemplate
 - `tests/commands/templates.test.ts` — 15 new tests (123 total, all passing)
+
+## Completed: Bulk Send
+
+Added a `bulk-send` command that sends templated emails to multiple recipients using the SES `SendBulkEmail` API, batching up to 50 recipients per API call instead of sending one-at-a-time.
+
+- `bulk-send <template>` — sends a templated email to all subscribed contacts using the named SES template. Batches recipients into groups of 50 per API call. Supports `--data <json>` for default template variable data, `--test <emails>` for test recipients, and `--dry-run` for previewing
+- Reports per-recipient success/failure from the bulk API response
+- Throttles batch calls based on account's max send rate (same `p-throttle` pattern as `send` but per-batch instead of per-email)
+- Verifies template exists before sending (fails fast with clear error)
+- Validates `--data` JSON before sending
+
+**Key limitation:** `SendBulkEmail` does NOT support `ListManagementOptions` (automatic unsubscribe link management). The command filters out unsubscribed contacts client-side via the existing `listContacts` method. This is a documented AWS API limitation with no planned resolution.
+
+### Files changed
+- `src/services/ses.ts` — Extended SesService interface with `sendBulkEmail` method (wraps `SendBulkEmailCommand`)
+- `src/commands/bulk-send.ts` — New command file with bulk send logic
+- `src/program.ts` — Registered the bulk-send command, updated program description
+- `tests/helpers.ts` — Extended mock with `sendBulkEmail`, `SentBulkEmail` tracking, `sendBulkEmailBehavior` option
+- `tests/commands/bulk-send.test.ts` — 10 new tests (133 total, all passing)

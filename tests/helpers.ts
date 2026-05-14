@@ -23,6 +23,9 @@ interface SentEmail {
 
 export interface MockSesServiceOptions {
   sendEmailBehavior?: (to: string) => Promise<string> | string;
+  sendBulkEmailBehavior?: (
+    entries: Array<{ to: string; replacementData?: string }>
+  ) => Array<{ status: string; messageId?: string; error?: string }>;
   maxSendRate?: number;
   accountInfo?: {
     sentLast24Hours?: number;
@@ -40,9 +43,19 @@ export interface MockSesServiceOptions {
   metricsErrors?: Array<{ metric: string; message: string }>;
 }
 
+interface SentBulkEmail {
+  from: string;
+  replyTo: string;
+  templateName: string;
+  defaultTemplateData?: string;
+  entries: Array<{ to: string; replacementData?: string }>;
+}
+
 export interface MockSesService extends SesService {
   getSentEmails(): SentEmail[];
   getSentEmailCount(): number;
+  getSentBulkEmails(): SentBulkEmail[];
+  getSentBulkEmailCount(): number;
   getContactCount(): number;
   setContactUnsubscribed(email: string, topicName: string): void;
   getSuppressedCount(): number;
@@ -89,6 +102,7 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
   const contactLists = new Map<string, MockContactList>();
   const contacts = new Map<string, MockContact>();
   const sentEmails: SentEmail[] = [];
+  const sentBulkEmails: SentBulkEmail[] = [];
   const suppressedDestinations = new Map<string, MockSuppressedDestination>();
   const templates = new Map<string, MockTemplate>();
 
@@ -99,6 +113,14 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
 
     getSentEmailCount() {
       return sentEmails.length;
+    },
+
+    getSentBulkEmails() {
+      return [...sentBulkEmails];
+    },
+
+    getSentBulkEmailCount() {
+      return sentBulkEmails.length;
     },
 
     getContactCount() {
@@ -482,6 +504,39 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
         rendered = rendered.replaceAll(`{{${key}}}`, value);
       }
       return rendered;
+    },
+
+    async sendBulkEmail(bulkOptions: {
+      from: string;
+      replyTo: string;
+      templateName: string;
+      defaultTemplateData?: string;
+      entries: Array<{ to: string; replacementData?: string }>;
+    }): Promise<Array<{ status: string; messageId?: string; error?: string }>> {
+      if (options?.sendBulkEmailBehavior) {
+        const result = options.sendBulkEmailBehavior(bulkOptions.entries);
+        sentBulkEmails.push({
+          from: bulkOptions.from,
+          replyTo: bulkOptions.replyTo,
+          templateName: bulkOptions.templateName,
+          defaultTemplateData: bulkOptions.defaultTemplateData,
+          entries: bulkOptions.entries,
+        });
+        return result;
+      }
+
+      sentBulkEmails.push({
+        from: bulkOptions.from,
+        replyTo: bulkOptions.replyTo,
+        templateName: bulkOptions.templateName,
+        defaultTemplateData: bulkOptions.defaultTemplateData,
+        entries: bulkOptions.entries,
+      });
+
+      return bulkOptions.entries.map((_e, i) => ({
+        status: "SUCCESS",
+        messageId: `mock-bulk-msg-${sentBulkEmails.length}-${i}`,
+      }));
     },
   };
 }

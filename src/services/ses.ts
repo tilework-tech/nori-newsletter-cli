@@ -23,6 +23,7 @@ import {
   UpdateEmailTemplateCommand,
   DeleteEmailTemplateCommand,
   TestRenderEmailTemplateCommand,
+  SendBulkEmailCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -181,6 +182,17 @@ export interface SesService {
   deleteTemplate(name: string): Promise<void>;
 
   testRenderTemplate(name: string, data: string): Promise<string>;
+
+  sendBulkEmail(options: {
+    from: string;
+    replyTo: string;
+    templateName: string;
+    defaultTemplateData?: string;
+    entries: Array<{
+      to: string;
+      replacementData?: string;
+    }>;
+  }): Promise<Array<{ status: string; messageId?: string; error?: string }>>;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -747,6 +759,48 @@ export function createSesService(client: SESv2Client): SesService {
       );
 
       return response.RenderedTemplate!;
+    },
+
+    async sendBulkEmail(bulkOptions: {
+      from: string;
+      replyTo: string;
+      templateName: string;
+      defaultTemplateData?: string;
+      entries: Array<{
+        to: string;
+        replacementData?: string;
+      }>;
+    }): Promise<Array<{ status: string; messageId?: string; error?: string }>> {
+      const response = await client.send(
+        new SendBulkEmailCommand({
+          FromEmailAddress: bulkOptions.from,
+          ReplyToAddresses: [bulkOptions.replyTo],
+          DefaultContent: {
+            Template: {
+              TemplateName: bulkOptions.templateName,
+              TemplateData: bulkOptions.defaultTemplateData ?? "{}",
+            },
+          },
+          BulkEmailEntries: bulkOptions.entries.map((entry) => ({
+            Destination: {
+              ToAddresses: [entry.to],
+            },
+            ...(entry.replacementData && {
+              ReplacementEmailContent: {
+                ReplacementTemplate: {
+                  ReplacementTemplateData: entry.replacementData,
+                },
+              },
+            }),
+          })),
+        })
+      );
+
+      return (response.BulkEmailEntryResults ?? []).map((r) => ({
+        status: r.Status ?? "FAILED",
+        messageId: r.MessageId,
+        error: r.Error,
+      }));
     },
   };
 }
