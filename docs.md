@@ -5,7 +5,7 @@ Path: @/
 ### Overview
 
 - CLI tool for managing and sending newsletters via AWS SES, built with Commander and TypeScript
-- Handles subscriber management (CRUD, CSV import) through SES contact lists and topic-based email delivery with automatic unsubscribe support
+- Handles full subscriber lifecycle (CRUD, CSV import, unsubscribe visibility, contact status inspection, attribute updates, resubscription) through SES contact lists, plus topic-based email delivery with automatic unsubscribe support
 - Sends emails concurrently with automatic rate throttling based on the account's SES sending quota
 - Published to npm as `nori-newsletter-cli`, installable globally via `npm install -g nori-newsletter-cli`
 

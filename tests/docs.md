@@ -16,7 +16,7 @@ Path: @/tests
 
 ### Core Implementation
 
-- **`helpers.ts`:** Central test infrastructure. `createMockSesService()` accepts an optional `MockSesServiceOptions` object with `sendEmailBehavior` (callback for injecting per-recipient send failures) and `maxSendRate` (defaults to 14). It returns an in-memory mock implementing the full `SesService` interface with state tracking (contacts map, sent emails list). `runCommand()` wires up the mock + a test output capture and runs Commander with `exitOverride()` so command errors become catchable `CommanderError` exceptions
+- **`helpers.ts`:** Central test infrastructure. `createMockSesService()` accepts an optional `MockSesServiceOptions` object with `sendEmailBehavior` (callback for injecting per-recipient send failures) and `maxSendRate` (defaults to 14). It returns an in-memory mock implementing the full `SesService` interface with state tracking (contacts map, sent emails list). The mock also exposes test-only helpers like `setContactUnsubscribed()` for simulating opt-out state and `getContactCount()` for assertions. `runCommand()` wires up the mock + a test output capture and runs Commander with `exitOverride()` so command errors become catchable `CommanderError` exceptions
 - **Command tests** (`commands/*.test.ts`) use `runCommand()` to test CLI behavior end-to-end: they pass argument arrays and assert on stdout/stderr/exitCode
 - **Help output tests** (`help.test.ts`) verify that `--help` output is self-contained by asserting on config field names, example JSON, env vars, and the correct program name. These use `program.outputHelp()` / `sub.outputHelp()` with captured output rather than `runCommand()`, since help is a synchronous Commander feature
 - **Packaging tests** (`packaging.test.ts`) shell out to `npm run build` and `npm pack --dry-run` to verify that `dist/`, `src/`, `LICENSE`, and `README.md` are included in the package, and that the bin entry has a valid node shebang
@@ -24,7 +24,7 @@ Path: @/tests
 ### Things to Know
 
 - Packaging tests run a real build (`npm run build`) as a side effect, so they are slower than unit tests and will fail if TypeScript compilation fails
-- The mock SES service simulates AWS error conventions: it throws errors with `.name` set to `"AlreadyExistsException"` or `"NotFoundException"` to match the real SES SDK behavior
+- The mock SES service simulates AWS error conventions: it throws errors with `.name` set to `"AlreadyExistsException"` or `"NotFoundException"` to match the real SES SDK behavior. It also replicates topic-aware filtering for `listContacts` and `listUnsubscribedContacts`, and the attribute-merging semantics of `updateContact`
 - Config tests (`config.test.ts`) use temp directories (`mkdtempSync`) and clean up after themselves, so they don't depend on any project-level config file existing
 
 Created and maintained by Nori.

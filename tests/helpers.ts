@@ -30,6 +30,7 @@ export interface MockSesService extends SesService {
   getSentEmails(): SentEmail[];
   getSentEmailCount(): number;
   getContactCount(): number;
+  setContactUnsubscribed(email: string, topicName: string): void;
 }
 
 export const TEST_CONFIG: NewsletterConfig = {
@@ -55,6 +56,16 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
 
     getContactCount() {
       return contacts.size;
+    },
+
+    setContactUnsubscribed(email: string, topicName: string) {
+      const contact = contacts.get(email);
+      if (contact) {
+        const pref = contact.topicPreferences.find((tp) => tp.topicName === topicName);
+        if (pref) {
+          pref.status = "OPT_OUT";
+        }
+      }
     },
 
     async createContactList(_name: string, _topic: string): Promise<void> {
@@ -87,10 +98,14 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
 
     async listContacts(
       _listName: string,
-      _topic: string
+      topicName: string
     ): Promise<Array<{ email: string; unsubscribeAll: boolean }>> {
       return Array.from(contacts.values())
-        .filter((c) => !c.unsubscribeAll)
+        .filter((c) => {
+          if (c.unsubscribeAll) return false;
+          const topicPref = c.topicPreferences.find((tp) => tp.topicName === topicName);
+          return !topicPref || topicPref.status === "OPT_IN";
+        })
         .map((c) => ({ email: c.email, unsubscribeAll: c.unsubscribeAll }));
     },
 
@@ -99,6 +114,7 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
       email: string
     ): Promise<{
       email: string;
+      topicPreferences: Array<{ topicName: string; status: string }>;
       attributes?: Record<string, string>;
       unsubscribeAll: boolean;
     } | null> {
@@ -106,9 +122,49 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
       if (!contact) return null;
       return {
         email: contact.email,
-        attributes: contact.attributes,
+        topicPreferences: contact.topicPreferences.map((tp) => ({ ...tp })),
+        attributes: contact.attributes ? { ...contact.attributes } : undefined,
         unsubscribeAll: contact.unsubscribeAll,
       };
+    },
+
+    async listUnsubscribedContacts(
+      _listName: string,
+      topicName: string
+    ): Promise<Array<{ email: string; unsubscribeAll: boolean }>> {
+      return Array.from(contacts.values())
+        .filter((c) => {
+          if (c.unsubscribeAll) return true;
+          const topicPref = c.topicPreferences.find((tp) => tp.topicName === topicName);
+          return topicPref?.status === "OPT_OUT";
+        })
+        .map((c) => ({ email: c.email, unsubscribeAll: c.unsubscribeAll }));
+    },
+
+    async updateContact(
+      _listName: string,
+      email: string,
+      options: {
+        topicPreferences?: Array<{ topicName: string; status: string }>;
+        unsubscribeAll?: boolean;
+        attributes?: Record<string, string>;
+      }
+    ): Promise<void> {
+      const contact = contacts.get(email);
+      if (!contact) {
+        const error = new Error("Contact not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      if (options.topicPreferences !== undefined) {
+        contact.topicPreferences = options.topicPreferences;
+      }
+      if (options.unsubscribeAll !== undefined) {
+        contact.unsubscribeAll = options.unsubscribeAll;
+      }
+      if (options.attributes !== undefined) {
+        contact.attributes = { ...contact.attributes, ...options.attributes };
+      }
     },
 
     async deleteContact(_listName: string, email: string): Promise<void> {

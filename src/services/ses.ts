@@ -4,6 +4,7 @@ import {
   CreateContactCommand,
   ListContactsCommand,
   GetContactCommand,
+  UpdateContactCommand,
   DeleteContactCommand,
   SendEmailCommand,
   GetAccountCommand,
@@ -29,9 +30,25 @@ export interface SesService {
     email: string
   ): Promise<{
     email: string;
+    topicPreferences: Array<{ topicName: string; status: string }>;
     attributes?: Record<string, string>;
     unsubscribeAll: boolean;
   } | null>;
+
+  listUnsubscribedContacts(
+    listName: string,
+    topicName: string
+  ): Promise<Array<{ email: string; unsubscribeAll: boolean }>>;
+
+  updateContact(
+    listName: string,
+    email: string,
+    options: {
+      topicPreferences?: Array<{ topicName: string; status: string }>;
+      unsubscribeAll?: boolean;
+      attributes?: Record<string, string>;
+    }
+  ): Promise<void>;
 
   deleteContact(listName: string, email: string): Promise<void>;
 
@@ -132,6 +149,7 @@ export function createSesService(client: SESv2Client): SesService {
       email: string
     ): Promise<{
       email: string;
+      topicPreferences: Array<{ topicName: string; status: string }>;
       attributes?: Record<string, string>;
       unsubscribeAll: boolean;
     } | null> {
@@ -148,8 +166,14 @@ export function createSesService(client: SESv2Client): SesService {
           attributes = JSON.parse(response.AttributesData);
         }
 
+        const topicPreferences = (response.TopicPreferences ?? []).map((tp) => ({
+          topicName: tp.TopicName!,
+          status: tp.SubscriptionStatus!,
+        }));
+
         return {
           email: response.EmailAddress!,
+          topicPreferences,
           attributes,
           unsubscribeAll: response.UnsubscribeAll ?? false,
         };
@@ -159,6 +183,86 @@ export function createSesService(client: SESv2Client): SesService {
         }
         throw err;
       }
+    },
+
+    async listUnsubscribedContacts(
+      listName: string,
+      topicName: string
+    ): Promise<Array<{ email: string; unsubscribeAll: boolean }>> {
+      // OPT_OUT filter is broken at the AWS service level (GitHub issue #8742).
+      // Workaround: fetch all contacts and filter client-side.
+      const contacts: Array<{ email: string; unsubscribeAll: boolean }> = [];
+      let nextToken: string | undefined;
+
+      do {
+        const response = await client.send(
+          new ListContactsCommand({
+            ContactListName: listName,
+            ...(nextToken && { NextToken: nextToken }),
+          })
+        );
+
+        if (response.Contacts) {
+          for (const c of response.Contacts) {
+            const isUnsubscribeAll = c.UnsubscribeAll ?? false;
+            const topicPref = c.TopicPreferences?.find(
+              (tp) => tp.TopicName === topicName
+            );
+            const isTopicOptOut = topicPref?.SubscriptionStatus === "OPT_OUT";
+
+            if (isUnsubscribeAll || isTopicOptOut) {
+              contacts.push({
+                email: c.EmailAddress!,
+                unsubscribeAll: isUnsubscribeAll,
+              });
+            }
+          }
+        }
+        nextToken = response.NextToken;
+      } while (nextToken);
+
+      return contacts;
+    },
+
+    async updateContact(
+      listName: string,
+      email: string,
+      options: {
+        topicPreferences?: Array<{ topicName: string; status: string }>;
+        unsubscribeAll?: boolean;
+        attributes?: Record<string, string>;
+      }
+    ): Promise<void> {
+      const current = await client.send(
+        new GetContactCommand({
+          ContactListName: listName,
+          EmailAddress: email,
+        })
+      );
+
+      const topicPreferences = options.topicPreferences
+        ? options.topicPreferences.map((tp) => ({
+            TopicName: tp.topicName,
+            SubscriptionStatus: tp.status as "OPT_IN" | "OPT_OUT",
+          }))
+        : current.TopicPreferences;
+
+      let attributesData = current.AttributesData;
+      if (options.attributes !== undefined) {
+        const existing = attributesData ? JSON.parse(attributesData) : {};
+        Object.assign(existing, options.attributes);
+        attributesData = JSON.stringify(existing);
+      }
+
+      await client.send(
+        new UpdateContactCommand({
+          ContactListName: listName,
+          EmailAddress: email,
+          TopicPreferences: topicPreferences,
+          UnsubscribeAll: options.unsubscribeAll ?? current.UnsubscribeAll,
+          AttributesData: attributesData,
+        })
+      );
     },
 
     async deleteContact(listName: string, email: string): Promise<void> {
