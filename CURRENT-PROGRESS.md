@@ -72,4 +72,33 @@ Added a `stats` command group with two subcommands:
 
 ## All Tier 1 Features Complete
 
-All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented. The next step would be Tier 2 features if desired.
+All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
+
+## Tier 2 Features (from APPLICATION-SPEC.md)
+
+| Feature | Status |
+|---------|--------|
+| 6. Email Templates | Done |
+| 7. Bulk Send | Not started |
+| 8. Identity and Domain Management | Not started |
+| 9. Configuration Sets and Event Destinations | Not started |
+| 10. Email Address Validation | Not started |
+| 11. Bulk Import/Export via S3 | Not started |
+
+## Completed: Email Templates
+
+Added a `templates` command group with six subcommands:
+
+- `templates create <name>` — creates a template from local HTML (`--html <path>`) and/or text (`--text <path>`) files with an optional subject line (`--subject`). Catches AlreadyExistsException for duplicate names.
+- `templates list` — lists all templates showing names and creation timestamps
+- `templates show <name>` — displays full template details including subject, HTML content, and text content
+- `templates update <name>` — updates specific fields of a template (`--subject`, `--html <path>`, `--text <path>`). Uses GET-then-PUT at the command layer to preserve unspecified fields, working around SES's full-replacement UpdateEmailTemplate semantics.
+- `templates delete <name>` — deletes a template, handles NotFoundException
+- `templates preview <name> --data <json>` — renders a template with test variable data (JSON string) and displays the output. Validates JSON before calling SES.
+
+### Files changed
+- `src/services/ses.ts` — Extended SesService interface with `createTemplate`, `getTemplate`, `listTemplates`, `updateTemplate`, `deleteTemplate`, `testRenderTemplate`
+- `src/commands/templates.ts` — New command file with six subcommands
+- `src/program.ts` — Registered the templates command, updated program description
+- `tests/helpers.ts` — Extended mock with in-memory template storage, basic Handlebars substitution for testRenderTemplate
+- `tests/commands/templates.test.ts` — 15 new tests (123 total, all passing)

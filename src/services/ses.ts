@@ -17,6 +17,12 @@ import {
   UpdateContactListCommand,
   DeleteContactListCommand,
   BatchGetMetricDataCommand,
+  CreateEmailTemplateCommand,
+  GetEmailTemplateCommand,
+  ListEmailTemplatesCommand,
+  UpdateEmailTemplateCommand,
+  DeleteEmailTemplateCommand,
+  TestRenderEmailTemplateCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -150,6 +156,31 @@ export interface SesService {
     }>;
     errors: Array<{ metric: string; message: string }>;
   }>;
+
+  createTemplate(
+    name: string,
+    content: { subject?: string; html?: string; text?: string }
+  ): Promise<void>;
+
+  getTemplate(
+    name: string
+  ): Promise<{
+    name: string;
+    subject?: string;
+    html?: string;
+    text?: string;
+  } | null>;
+
+  listTemplates(): Promise<Array<{ name: string; createdTimestamp: Date }>>;
+
+  updateTemplate(
+    name: string,
+    content: { subject?: string; html?: string; text?: string }
+  ): Promise<void>;
+
+  deleteTemplate(name: string): Promise<void>;
+
+  testRenderTemplate(name: string, data: string): Promise<string>;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -622,6 +653,100 @@ export function createSesService(client: SESv2Client): SesService {
       }));
 
       return { results, errors };
+    },
+
+    async createTemplate(
+      name: string,
+      content: { subject?: string; html?: string; text?: string }
+    ): Promise<void> {
+      await client.send(
+        new CreateEmailTemplateCommand({
+          TemplateName: name,
+          TemplateContent: {
+            Subject: content.subject,
+            Html: content.html,
+            Text: content.text,
+          },
+        })
+      );
+    },
+
+    async getTemplate(name: string) {
+      try {
+        const response = await client.send(
+          new GetEmailTemplateCommand({ TemplateName: name })
+        );
+
+        return {
+          name: response.TemplateName!,
+          subject: response.TemplateContent?.Subject,
+          html: response.TemplateContent?.Html,
+          text: response.TemplateContent?.Text,
+        };
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "NotFoundException") {
+          return null;
+        }
+        throw err;
+      }
+    },
+
+    async listTemplates() {
+      const results: Array<{ name: string; createdTimestamp: Date }> = [];
+      let nextToken: string | undefined;
+
+      do {
+        const response = await client.send(
+          new ListEmailTemplatesCommand({
+            ...(nextToken && { NextToken: nextToken }),
+          })
+        );
+
+        if (response.TemplatesMetadata) {
+          for (const t of response.TemplatesMetadata) {
+            results.push({
+              name: t.TemplateName!,
+              createdTimestamp: t.CreatedTimestamp!,
+            });
+          }
+        }
+        nextToken = response.NextToken;
+      } while (nextToken);
+
+      return results;
+    },
+
+    async updateTemplate(
+      name: string,
+      content: { subject?: string; html?: string; text?: string }
+    ): Promise<void> {
+      await client.send(
+        new UpdateEmailTemplateCommand({
+          TemplateName: name,
+          TemplateContent: {
+            Subject: content.subject,
+            Html: content.html,
+            Text: content.text,
+          },
+        })
+      );
+    },
+
+    async deleteTemplate(name: string): Promise<void> {
+      await client.send(
+        new DeleteEmailTemplateCommand({ TemplateName: name })
+      );
+    },
+
+    async testRenderTemplate(name: string, data: string): Promise<string> {
+      const response = await client.send(
+        new TestRenderEmailTemplateCommand({
+          TemplateName: name,
+          TemplateData: data,
+        })
+      );
+
+      return response.RenderedTemplate!;
     },
   };
 }

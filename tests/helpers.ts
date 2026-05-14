@@ -47,6 +47,7 @@ export interface MockSesService extends SesService {
   setContactUnsubscribed(email: string, topicName: string): void;
   getSuppressedCount(): number;
   getContactListCount(): number;
+  getTemplateCount(): number;
 }
 
 export const TEST_CONFIG: NewsletterConfig = {
@@ -76,11 +77,20 @@ interface MockContactList {
   tags: Array<{ key: string; value: string }>;
 }
 
+interface MockTemplate {
+  name: string;
+  subject?: string;
+  html?: string;
+  text?: string;
+  createdTimestamp: Date;
+}
+
 export function createMockSesService(options?: MockSesServiceOptions): MockSesService {
   const contactLists = new Map<string, MockContactList>();
   const contacts = new Map<string, MockContact>();
   const sentEmails: SentEmail[] = [];
   const suppressedDestinations = new Map<string, MockSuppressedDestination>();
+  const templates = new Map<string, MockTemplate>();
 
   return {
     getSentEmails() {
@@ -107,6 +117,10 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
 
     getContactListCount() {
       return contactLists.size;
+    },
+
+    getTemplateCount() {
+      return templates.size;
     },
 
     async createContactList(name: string, topicName: string): Promise<void> {
@@ -393,6 +407,81 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
         results: options?.metricsResults ?? [],
         errors: options?.metricsErrors ?? [],
       };
+    },
+
+    async createTemplate(
+      name: string,
+      content: { subject?: string; html?: string; text?: string }
+    ): Promise<void> {
+      if (templates.has(name)) {
+        const error = new Error("Template already exists");
+        error.name = "AlreadyExistsException";
+        throw error;
+      }
+      templates.set(name, {
+        name,
+        subject: content.subject,
+        html: content.html,
+        text: content.text,
+        createdTimestamp: new Date(),
+      });
+    },
+
+    async getTemplate(name: string) {
+      const t = templates.get(name);
+      if (!t) return null;
+      return {
+        name: t.name,
+        subject: t.subject,
+        html: t.html,
+        text: t.text,
+      };
+    },
+
+    async listTemplates() {
+      return Array.from(templates.values()).map((t) => ({
+        name: t.name,
+        createdTimestamp: t.createdTimestamp,
+      }));
+    },
+
+    async updateTemplate(
+      name: string,
+      content: { subject?: string; html?: string; text?: string }
+    ): Promise<void> {
+      if (!templates.has(name)) {
+        const error = new Error("Template not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      const t = templates.get(name)!;
+      t.subject = content.subject;
+      t.html = content.html;
+      t.text = content.text;
+    },
+
+    async deleteTemplate(name: string): Promise<void> {
+      if (!templates.has(name)) {
+        const error = new Error("Template not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      templates.delete(name);
+    },
+
+    async testRenderTemplate(name: string, data: string): Promise<string> {
+      const t = templates.get(name);
+      if (!t) {
+        const error = new Error("Template not found");
+        error.name = "NotFoundException";
+        throw error;
+      }
+      const vars = JSON.parse(data) as Record<string, string>;
+      let rendered = t.html ?? t.text ?? "";
+      for (const [key, value] of Object.entries(vars)) {
+        rendered = rendered.replaceAll(`{{${key}}}`, value);
+      }
+      return rendered;
     },
   };
 }

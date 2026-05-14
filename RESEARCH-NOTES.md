@@ -156,3 +156,66 @@ interface Tag {
   - PERMANENT_BOUNCE = hard bounces (non-existent mailboxes)
   - TRANSIENT_BOUNCE = soft bounces (delivery failures, NOT non-existent)
   - DELIVERY_OPEN/DELIVERY_CLICK/DELIVERY_COMPLAINT = denominator metrics for rate calculation
+
+## Email Template APIs
+
+### API Commands and Types
+
+#### CreateEmailTemplateCommand
+- Params: `TemplateName` (required), `TemplateContent` (required), `Tags?`
+- `EmailTemplateContent`: `{ Subject?: string, Text?: string, Html?: string }` — all three fields optional
+- Response is empty `{}`
+- Throws `AlreadyExistsException` if template name already exists
+- Throws `LimitExceededException` if 20,000 template limit reached
+- Rate limit: 1 req/sec
+
+#### GetEmailTemplateCommand
+- Params: `TemplateName` (required)
+- Response: `{ TemplateName, TemplateContent: EmailTemplateContent, Tags? }`
+- Throws `NotFoundException` if template does not exist
+- Rate limit: 50 req/sec (higher than other template operations)
+
+#### ListEmailTemplatesCommand
+- Params: `NextToken?`, `PageSize?` (1-100)
+- Response: `{ TemplatesMetadata?: EmailTemplateMetadata[], NextToken? }`
+- `EmailTemplateMetadata`: `{ TemplateName?, CreatedTimestamp? }` — sparse, no content
+- Must call GetEmailTemplate per template for full content
+- Rate limit: 1 req/sec
+- SDK exports `paginateListEmailTemplates` but we use manual pagination for consistency
+
+#### UpdateEmailTemplateCommand
+- Params: `TemplateName` (required), `TemplateContent` (required)
+- **FULL REPLACEMENT** — omitted fields in TemplateContent are cleared
+- Pattern: GET first, modify in memory, PUT back (same as UpdateContact/UpdateContactList)
+- No Tags field on update (unlike Create)
+- Throws `NotFoundException`
+- Rate limit: 1 req/sec
+
+#### DeleteEmailTemplateCommand
+- Params: `TemplateName` (required)
+- Throws `NotFoundException` if template does not exist (unlike some AWS delete operations)
+- Rate limit: 1 req/sec
+
+#### TestRenderEmailTemplateCommand
+- Params: `TemplateName` (required), `TemplateData` (required, JSON string, max 256 KB)
+- `TemplateData` is a **JSON string**, not an object — must `JSON.stringify()` before passing
+- Response: `{ RenderedTemplate }` — returns a **complete MIME message**, not just rendered HTML
+- MIME message includes headers, boundaries, and base64-encoded content parts
+- Throws `NotFoundException` if template does not exist
+- Throws `BadRequestException` if template data is invalid or missing required variables
+- Rate limit: 1 req/sec
+
+### Template Variable Syntax
+- Uses **Handlebars double-curly syntax**: `{{variableName}}`
+- **Case sensitive**: `{{Name}}` and `{{name}}` are different
+- Stored templates support full Handlebars: `{{#if}}`, `{{#each}}`, nested paths (`{{contact.firstName}}`), inline partials
+- Inline templates (in SendEmail) only support simple substitution
+
+### Key Quirks
+- **SES v2 field names differ from v1**: v2 uses `Subject`, `Html`, `Text`; v1 uses `SubjectPart`, `HtmlPart`, `TextPart`
+- **Missing variables cause SILENT send failures**: API returns messageId but email never delivers. Only detectable via SNS Rendering Failure events
+- **Extra variables are silently ignored**: Including unused variables in TemplateData is fine
+- **No HTML escaping**: SES does not escape user-provided data in templates — must escape client-side
+- **20,000 templates per region** (not adjustable)
+- **500 KB max per template** (not adjustable)
+- **TestRenderEmailTemplate returns MIME**: Need to extract HTML content from MIME boundaries for preview
