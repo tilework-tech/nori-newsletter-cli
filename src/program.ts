@@ -12,6 +12,7 @@ import { createTemplatesCommand } from "./commands/templates.js";
 import { createBulkSendCommand } from "./commands/bulk-send.js";
 import { createIdentitiesCommand } from "./commands/identities.js";
 import { createConfigSetsCommand } from "./commands/config-sets.js";
+import { createValidateCommand } from "./commands/validate.js";
 
 export function createProgram(
   ses: SesService,
@@ -31,7 +32,8 @@ export function createProgram(
         "'lists' to manage contact lists, 'stats' to view sending statistics, " +
         "'templates' to manage reusable email templates, " +
         "'identities' to manage verified sending identities, " +
-        "and 'config-sets' to manage configuration sets and event destinations."
+        "'config-sets' to manage configuration sets and event destinations, " +
+        "and 'validate' to check email address deliverability."
     )
     .showSuggestionAfterError(true)
     .showHelpAfterError("(use --help for usage information)")
@@ -75,6 +77,7 @@ Environment variables:
   program.addCommand(createBulkSendCommand(ses, out, getConfig));
   program.addCommand(createIdentitiesCommand(ses, out, getConfig));
   program.addCommand(createConfigSetsCommand(ses, out, getConfig));
+  program.addCommand(createValidateCommand(ses, out, getConfig));
 
   return program;
 }

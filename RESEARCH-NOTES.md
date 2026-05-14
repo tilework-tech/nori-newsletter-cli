@@ -444,3 +444,67 @@ interface MailFromAttributes {
 - **Max 10,000 identities per region**: email addresses + domains combined
 - **VerifiedForSendingStatus vs VerificationStatus**: `VerifiedForSendingStatus` is a boolean (can send right now?), `VerificationStatus` is an enum (PENDING/SUCCESS/FAILED/etc.)
 - **CreateEmailIdentity response is sparse**: only IdentityType, VerifiedForSendingStatus, DkimAttributes. Must call GetEmailIdentity for full details.
+
+## Email Address Validation API
+
+### GetEmailAddressInsightsCommand
+- Available in `@aws-sdk/client-sesv2` v3.1045.0 (installed)
+- Endpoint: `POST /v2/email/email-address-insights/`
+- Request: `{ EmailAddress: string }` — single address only, no batch endpoint
+- Response: `{ MailboxValidation?: { IsValid?: Verdict, Evaluations?: Evaluations } }`
+- Errors: `BadRequestException` (400), `TooManyRequestsException` (429)
+
+### TypeScript Types
+```typescript
+type EmailAddressInsightsConfidenceVerdict = "HIGH" | "MEDIUM" | "LOW";
+
+interface EmailAddressInsightsVerdict {
+  ConfidenceVerdict?: EmailAddressInsightsConfidenceVerdict;
+}
+
+interface EmailAddressInsightsMailboxEvaluations {
+  HasValidSyntax?: EmailAddressInsightsVerdict;
+  HasValidDnsRecords?: EmailAddressInsightsVerdict;
+  MailboxExists?: EmailAddressInsightsVerdict;
+  IsRoleAddress?: EmailAddressInsightsVerdict;
+  IsDisposable?: EmailAddressInsightsVerdict;
+  IsRandomInput?: EmailAddressInsightsVerdict;
+}
+
+interface MailboxValidation {
+  IsValid?: EmailAddressInsightsVerdict;
+  Evaluations?: EmailAddressInsightsMailboxEvaluations;
+}
+```
+
+### Six Evaluation Checks
+1. **HasValidSyntax** — RFC standards and valid character check
+2. **HasValidDnsRecords** — domain exists with valid DNS, configured for email
+3. **MailboxExists** — mailbox exists and can receive messages (without sending)
+4. **IsRoleAddress** — role-based addresses (admin@, support@, info@)
+5. **IsDisposable** — disposable/temporary email addresses
+6. **IsRandomInput** — random text detection
+
+### Verdict Semantics (CRITICAL)
+- For `IsValid`: HIGH = good (high delivery likelihood), LOW = bad
+- For risk checks (`IsRoleAddress`, `IsDisposable`, `IsRandomInput`): HIGH = bad (strong indication flag is true), LOW = good
+- The semantics of HIGH/LOW are **inverted** between IsValid and risk checks
+
+### Pricing
+- $0.01 per API validation call
+- No free tier for validation
+- Auto Validation (send-time alternative): $0.01 per 1,000 — 100x cheaper but only at send time
+
+### Rate Limits
+- General SES API quota: 1 req/s for non-send operations (likely applies)
+- Not explicitly documented for this endpoint
+- Returns `TooManyRequestsException` (429) when throttled
+- Not adjustable
+
+### Key Quirks
+- No batch endpoint — must iterate one address at a time with throttle handling
+- All response fields are optional (`?`) — must handle undefined throughout
+- At 1 req/s + $0.01/call, validating 10,000 addresses = ~2.8 hours and $100
+- Feature announced December 2025 — may not be available in all regions
+- Sandbox availability: not explicitly documented, but likely works (validation doesn't send email)
+- IAM permissions needed: `ses:GetEmailAddressInsights` and `iam:CreateServiceLinkedRole`

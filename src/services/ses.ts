@@ -35,6 +35,7 @@ import {
   CreateConfigurationSetEventDestinationCommand,
   GetConfigurationSetEventDestinationsCommand,
   DeleteConfigurationSetEventDestinationCommand,
+  GetEmailAddressInsightsCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -327,6 +328,18 @@ export interface SesService {
     configSetName: string,
     destName: string
   ): Promise<void>;
+
+  getEmailAddressInsights(email: string): Promise<{
+    isValid: string;
+    evaluations: {
+      hasValidSyntax: string;
+      hasValidDnsRecords: string;
+      mailboxExists: string;
+      isRoleAddress: string;
+      isDisposable: string;
+      isRandomInput: string;
+    };
+  }>;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -1307,6 +1320,27 @@ export function createSesService(client: SESv2Client): SesService {
           EventDestinationName: destName,
         })
       );
+    },
+
+    async getEmailAddressInsights(email: string) {
+      const response = await client.send(
+        new GetEmailAddressInsightsCommand({ EmailAddress: email })
+      );
+
+      const v = response.MailboxValidation;
+      const e = v?.Evaluations;
+
+      return {
+        isValid: v?.IsValid?.ConfidenceVerdict ?? "UNKNOWN",
+        evaluations: {
+          hasValidSyntax: e?.HasValidSyntax?.ConfidenceVerdict ?? "UNKNOWN",
+          hasValidDnsRecords: e?.HasValidDnsRecords?.ConfidenceVerdict ?? "UNKNOWN",
+          mailboxExists: e?.MailboxExists?.ConfidenceVerdict ?? "UNKNOWN",
+          isRoleAddress: e?.IsRoleAddress?.ConfidenceVerdict ?? "UNKNOWN",
+          isDisposable: e?.IsDisposable?.ConfidenceVerdict ?? "UNKNOWN",
+          isRandomInput: e?.IsRandomInput?.ConfidenceVerdict ?? "UNKNOWN",
+        },
+      };
     },
   };
 }

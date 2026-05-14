@@ -82,7 +82,7 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | 7. Bulk Send | Done |
 | 8. Identity and Domain Management | Done |
 | 9. Configuration Sets and Event Destinations | Done |
-| 10. Email Address Validation | Not started |
+| 10. Email Address Validation | Done |
 | 11. Bulk Import/Export via S3 | Not started |
 
 ## Completed: Email Templates
@@ -158,3 +158,17 @@ Event destinations are the first nested sub-entity in the CLI — they belong to
 - `src/program.ts` — Registered the config-sets command, updated program description
 - `tests/helpers.ts` — Extended mock with `MockConfigSet` and `MockEventDestination` in-memory storage, `getConfigSetCount()` inspector
 - `tests/commands/config-sets.test.ts` — 25 new tests (170 total, all passing)
+
+## Completed: Email Address Validation
+
+Added a `validate` command group with two subcommands that use the SES `GetEmailAddressInsights` API to check email address deliverability before sending:
+
+- `validate check <email>` — validates a single email address and displays all 6 evaluation checks: syntax, DNS records, mailbox existence, role address detection, disposable address detection, and random input detection. Each check returns a confidence verdict (HIGH/MEDIUM/LOW). Handles `BadRequestException` for malformed input.
+- `validate list` — validates all subscribed contacts in the configured contact list. Shows per-contact results (email + overall verdict) and a summary line with counts of valid (HIGH), uncertain (MEDIUM), and invalid (LOW) addresses.
+
+### Files changed
+- `src/services/ses.ts` — Extended SesService interface with `getEmailAddressInsights(email)`. Uses `GetEmailAddressInsightsCommand` from `@aws-sdk/client-sesv2`. Returns normalized result with `isValid` verdict and 6 evaluation checks, defaulting optional fields to `"UNKNOWN"`.
+- `src/commands/validate.ts` — New command file with two subcommands
+- `src/program.ts` — Registered the validate command, updated program description
+- `tests/helpers.ts` — Extended mock with `validateBehavior` option and `getEmailAddressInsights` default implementation (all-valid)
+- `tests/commands/validate.test.ts` — 8 new tests (178 total, all passing)

@@ -26,6 +26,17 @@ export interface MockSesServiceOptions {
   sendBulkEmailBehavior?: (
     entries: Array<{ to: string; replacementData?: string }>
   ) => Array<{ status: string; messageId?: string; error?: string }>;
+  validateBehavior?: (email: string) => {
+    isValid: string;
+    evaluations: {
+      hasValidSyntax: string;
+      hasValidDnsRecords: string;
+      mailboxExists: string;
+      isRoleAddress: string;
+      isDisposable: string;
+      isRandomInput: string;
+    };
+  };
   maxSendRate?: number;
   accountInfo?: {
     sentLast24Hours?: number;
@@ -857,6 +868,23 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
         throw error;
       }
       cs.eventDestinations.delete(destName);
+    },
+
+    async getEmailAddressInsights(email: string) {
+      if (options?.validateBehavior) {
+        return options.validateBehavior(email);
+      }
+      return {
+        isValid: "HIGH",
+        evaluations: {
+          hasValidSyntax: "HIGH",
+          hasValidDnsRecords: "HIGH",
+          mailboxExists: "HIGH",
+          isRoleAddress: "LOW",
+          isDisposable: "LOW",
+          isRandomInput: "LOW",
+        },
+      };
     },
   };
 }
