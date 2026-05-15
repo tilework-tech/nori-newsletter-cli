@@ -93,6 +93,22 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | Pre-send preflight checks | Done |
 | Contact/suppression cleanup | Done |
 | Setup/configuration audit | Done |
+| Reputation analysis | Done |
+
+## Completed: Reputation Analysis
+
+Added a `reputation` command that analyzes SES sending reputation by computing bounce and complaint rates from VDM metrics and comparing them against AWS enforcement thresholds:
+
+- `reputation` — calculates bounce rate (PERMANENT_BOUNCE / SEND) and complaint rate (COMPLAINT / SEND), applies AWS thresholds (bounce: <2% OK, 2-5% WARN, >=5% CRITICAL; complaint: <0.05% OK, 0.05-0.1% WARN, >=0.1% CRITICAL), shows enforcement status, quota usage, suppression list breakdown, and actionable recommendations
+- Supports `--days <days>` (1-60, default 7) to control metrics lookback period and `--identity <identity>` to filter by sending identity
+- Falls back gracefully when VDM is not enabled (shows "Metrics unavailable" instead of crashing)
+- Sets exit code 1 when any metric is CRITICAL, enabling use in automated monitoring
+- No new SES service methods needed — composes existing `getAccountInfo()`, `getMetrics()`, and `listSuppressedDestinations()` in parallel
+
+### Files changed
+- `src/commands/reputation.ts` — New command file
+- `src/program.ts` — Registered the reputation command, updated program description
+- `tests/commands/reputation.test.ts` — 12 new tests (238 total, all passing)
 
 ## Completed: Email Templates
 

@@ -667,3 +667,61 @@ example1@amazon.com,false,{"Name": "John"},OPT_IN
 - S3 bucket policy must grant `ses.amazonaws.com` GetObject permission
 - Import jobs require production access (sandbox can't use them)
 - AWS SDK enum inconsistency: docs mention `ERROR` but actual enum has `FAILED`
+
+## Reputation Monitoring Research
+
+### AWS SES Enforcement Thresholds (Official)
+
+**Bounce Rate:**
+- Below 2%: AWS-recommended best practice
+- 5% or greater: Account automatically placed **under review** (PROBATION)
+- 10% or greater: AWS **may pause** sending ability (SHUTDOWN)
+- Only hard bounces to non-verified domains count
+
+**Complaint Rate:**
+- Below 0.1%: AWS-recommended best practice
+- 0.1% or greater: Account automatically placed **under review** (PROBATION)
+- 0.5% or greater: AWS **may pause** sending ability (SHUTDOWN)
+- Only calculated on mail to domains with feedback loop (FBL) support
+
+**Industry/Gmail thresholds (stricter than AWS):**
+- Gmail spam complaint rate must stay below 0.10%, never reach 0.30%
+- Industry bounce: excellent <1%, acceptable 1-2%, concerning 2-5%, dangerous >5%
+
+### Enforcement Progression
+- HEALTHY → PROBATION (under review, can still send) → SHUTDOWN (sending paused)
+- AWS can skip review and immediately pause for severe spamtrap problems
+- Review period duration not publicly documented
+
+### API Fields for Reputation Monitoring
+
+**`GetAccount` response** (already wrapped as `getAccountInfo()`):
+- `EnforcementStatus`: `HEALTHY`, `PROBATION`, `SHUTDOWN`
+- `Details.ReviewDetails.Status`: review status
+- `Details.ReviewDetails.CaseId`: AWS Support case ID
+- `VdmAttributes.VdmEnabled`: whether VDM is enabled
+
+**`BatchGetMetricData`** (already wrapped as `getMetrics()`):
+- Returns raw counts, NO rate calculation
+- Must compute rates manually: `bounce_rate = PERMANENT_BOUNCE / SEND`, `complaint_rate = COMPLAINT / SEND`
+- VDM formula for complaint rate uses `COMPLAINT / DELIVERY` (not SEND)
+
+**CloudWatch `AWS/SES` namespace** (not accessible via SES API):
+- `Reputation.BounceRate` — percentage as decimal (0.05 = 5%)
+- `Reputation.ComplaintRate` — percentage as decimal (0.001 = 0.1%)
+
+### Threshold Summary for CLI Implementation
+
+| Metric | OK (green) | WARN (yellow) | CRITICAL (red) |
+|--------|-----------|---------------|----------------|
+| Bounce Rate | < 2% | 2% - 5% | >= 5% |
+| Complaint Rate | < 0.05% | 0.05% - 0.1% | >= 0.1% |
+| Enforcement | HEALTHY | PROBATION | SHUTDOWN |
+| Quota Usage | < 80% | 80% - 95% | >= 95% |
+
+### Design Decision: No New SES API Methods Needed
+- `getAccountInfo()` provides enforcement status, quota, sending enabled
+- `getMetrics()` provides raw SEND/DELIVERY/PERMANENT_BOUNCE/COMPLAINT counts
+- `listSuppressedDestinations()` provides suppression list for growth analysis
+- Rate calculations done in command layer, not service layer
+- Falls back gracefully when VDM not enabled (metrics will error/empty)

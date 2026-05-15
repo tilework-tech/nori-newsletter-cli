@@ -18,6 +18,7 @@ import { createPreflightCommand } from "./commands/preflight.js";
 import { createCleanupCommand } from "./commands/cleanup.js";
 import { createSetupCommand } from "./commands/setup.js";
 import { createJobsCommand } from "./commands/jobs.js";
+import { createReputationCommand } from "./commands/reputation.js";
 
 export function createProgram(
   ses: SesService,
@@ -42,6 +43,7 @@ export function createProgram(
         "'health' for a newsletter dashboard, 'preflight' for pre-send checks, " +
         "'cleanup' to reconcile contacts with the suppression list, " +
         "'setup' to configure SES infrastructure for sending, " +
+        "'reputation' to analyze bounce/complaint rates against AWS thresholds, " +
         "and 'jobs' to manage bulk import/export jobs via S3."
     )
     .showSuggestionAfterError(true)
@@ -92,6 +94,7 @@ Environment variables:
   program.addCommand(createCleanupCommand(ses, out, getConfig));
   program.addCommand(createSetupCommand(ses, out, getConfig));
   program.addCommand(createJobsCommand(ses, out, getConfig));
+  program.addCommand(createReputationCommand(ses, out, getConfig));
 
   return program;
 }
