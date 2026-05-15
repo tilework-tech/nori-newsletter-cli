@@ -81,6 +81,8 @@ export interface MockSesService extends SesService {
   getTemplateCount(): number;
   getIdentityCount(): number;
   getConfigSetCount(): number;
+  getImportJobCount(): number;
+  getExportJobCount(): number;
 }
 
 export const TEST_CONFIG: NewsletterConfig = {
@@ -155,6 +157,31 @@ interface MockEventDestination {
   destinationDetails: Record<string, string | undefined>;
 }
 
+interface MockImportJob {
+  jobId: string;
+  destinationType: string;
+  action: string;
+  s3Url: string;
+  dataFormat: string;
+  contactListName?: string;
+  jobStatus: string;
+  createdTimestamp: Date;
+  completedTimestamp?: Date;
+  processedRecordsCount?: number;
+  failedRecordsCount?: number;
+}
+
+interface MockExportJob {
+  jobId: string;
+  sourceType: string;
+  dataFormat: string;
+  jobStatus: string;
+  createdTimestamp: Date;
+  completedTimestamp?: Date;
+  processedRecordsCount?: number;
+  exportedRecordsCount?: number;
+}
+
 interface MockIdentity {
   name: string;
   type: string;
@@ -181,6 +208,10 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
   const templates = new Map<string, MockTemplate>();
   const identities = new Map<string, MockIdentity>();
   const configSets = new Map<string, MockConfigSet>();
+  const importJobs = new Map<string, MockImportJob>();
+  const exportJobs = new Map<string, MockExportJob>();
+  let importJobCounter = 0;
+  let exportJobCounter = 0;
 
   if (options?.seedIdentities) {
     for (const seed of options.seedIdentities) {
@@ -246,6 +277,14 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
 
     getConfigSetCount() {
       return configSets.size;
+    },
+
+    getImportJobCount() {
+      return importJobs.size;
+    },
+
+    getExportJobCount() {
+      return exportJobs.size;
     },
 
     async createContactList(name: string, topicName: string): Promise<void> {
@@ -911,6 +950,114 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
           isRandomInput: "LOW",
         },
       };
+    },
+
+    async createImportJob(opts: {
+      destinationType: "CONTACT_LIST" | "SUPPRESSION_LIST";
+      action: "PUT" | "DELETE";
+      s3Url: string;
+      dataFormat: "CSV" | "JSON";
+      contactListName?: string;
+    }) {
+      importJobCounter++;
+      const jobId = `import-job-${importJobCounter}`;
+      importJobs.set(jobId, {
+        jobId,
+        destinationType: opts.destinationType,
+        action: opts.action,
+        s3Url: opts.s3Url,
+        dataFormat: opts.dataFormat,
+        contactListName: opts.contactListName,
+        jobStatus: "CREATED",
+        createdTimestamp: new Date(),
+      });
+      return { jobId };
+    },
+
+    async getImportJob(jobId: string) {
+      const job = importJobs.get(jobId);
+      if (!job) return null;
+      return {
+        jobId: job.jobId,
+        destinationType: job.destinationType,
+        action: job.action,
+        s3Url: job.s3Url,
+        dataFormat: job.dataFormat,
+        jobStatus: job.jobStatus,
+        createdTimestamp: job.createdTimestamp,
+        completedTimestamp: job.completedTimestamp,
+        processedRecordsCount: job.processedRecordsCount,
+        failedRecordsCount: job.failedRecordsCount,
+      };
+    },
+
+    async listImportJobs(destinationType?: string) {
+      let jobs = Array.from(importJobs.values());
+      if (destinationType) {
+        jobs = jobs.filter((j) => j.destinationType === destinationType);
+      }
+      return jobs.map((j) => ({
+        jobId: j.jobId,
+        destinationType: j.destinationType,
+        jobStatus: j.jobStatus,
+        createdTimestamp: j.createdTimestamp,
+        processedRecordsCount: j.processedRecordsCount,
+        failedRecordsCount: j.failedRecordsCount,
+      }));
+    },
+
+    async createExportJob(opts: {
+      sourceType: "METRICS_DATA" | "MESSAGE_INSIGHTS";
+      dataFormat: "CSV" | "JSON";
+      startDate: Date;
+      endDate: Date;
+      metrics?: string[];
+      identity?: string;
+      fromAddress?: string;
+      destination?: string;
+    }) {
+      exportJobCounter++;
+      const jobId = `export-job-${exportJobCounter}`;
+      exportJobs.set(jobId, {
+        jobId,
+        sourceType: opts.sourceType,
+        dataFormat: opts.dataFormat,
+        jobStatus: "CREATED",
+        createdTimestamp: new Date(),
+      });
+      return { jobId };
+    },
+
+    async getExportJob(jobId: string) {
+      const job = exportJobs.get(jobId);
+      if (!job) return null;
+      return {
+        jobId: job.jobId,
+        sourceType: job.sourceType,
+        jobStatus: job.jobStatus,
+        dataFormat: job.dataFormat,
+        createdTimestamp: job.createdTimestamp,
+        completedTimestamp: job.completedTimestamp,
+        processedRecordsCount: job.processedRecordsCount,
+        exportedRecordsCount: job.exportedRecordsCount,
+      };
+    },
+
+    async listExportJobs(sourceType?: string, status?: string) {
+      let jobs = Array.from(exportJobs.values());
+      if (sourceType) {
+        jobs = jobs.filter((j) => j.sourceType === sourceType);
+      }
+      if (status) {
+        jobs = jobs.filter((j) => j.jobStatus === status);
+      }
+      return jobs.map((j) => ({
+        jobId: j.jobId,
+        sourceType: j.sourceType,
+        jobStatus: j.jobStatus,
+        createdTimestamp: j.createdTimestamp,
+        completedTimestamp: j.completedTimestamp,
+      }));
     },
   };
 }

@@ -83,7 +83,7 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | 8. Identity and Domain Management | Done |
 | 9. Configuration Sets and Event Destinations | Done |
 | 10. Email Address Validation | Done |
-| 11. Bulk Import/Export via S3 | Not started |
+| 11. Bulk Import/Export via S3 | Done |
 
 ## High-Level Abstraction Features
 
@@ -243,3 +243,21 @@ Creates missing SES resources, safe to run multiple times:
 - `src/program.ts` — Registered the setup command, updated program description
 - `tests/commands/setup.test.ts` — 11 new tests
 - Total: 213 tests, all passing
+
+## Completed: Bulk Import/Export via S3
+
+Added a `jobs` command group with six subcommands that wrap the SES v2 bulk import/export job APIs, enabling S3-based data management at scale instead of row-by-row API calls:
+
+- `jobs import-contacts` — creates a bulk contact list import job from an S3 file (CSV or JSON). Supports `--action put` (add/update, default) or `--action delete` (remove). Uses configured contact list name by default, overridable with `--list`.
+- `jobs import-suppression` — creates a bulk suppression list import job from an S3 file. Supports `--action put` (add) or `--action delete` (remove).
+- `jobs export-metrics` — creates a VDM metrics data export job. Requires `--start-date` and `--end-date`. Default metrics: SEND, DELIVERY, PERMANENT_BOUNCE, COMPLAINT. Supports `--metrics` override and `--identity` filter.
+- `jobs export-insights` — creates a message insights export job. Requires date range. Supports `--from` and `--destination` filters.
+- `jobs status <job-id>` — shows full details of an import or export job (status, timestamps, record counts, failure info). Checks both import and export job stores.
+- `jobs list` — lists all import and export jobs with type, status, and timestamp. Supports `--type import` or `--type export` filtering.
+
+### Files changed
+- `src/services/ses.ts` — Extended SesService interface with `createImportJob`, `getImportJob`, `listImportJobs`, `createExportJob`, `getExportJob`, `listExportJobs`. Added 6 new AWS SDK command imports.
+- `src/commands/jobs.ts` — New command file with six subcommands
+- `src/program.ts` — Registered the jobs command, updated program description
+- `tests/helpers.ts` — Added MockImportJob/MockExportJob interfaces, extended mock with in-memory job storage and auto-incrementing IDs, added getImportJobCount/getExportJobCount inspection methods
+- `tests/commands/jobs.test.ts` — 12 new tests (226 total, all passing)

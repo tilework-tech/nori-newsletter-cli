@@ -36,6 +36,12 @@ import {
   GetConfigurationSetEventDestinationsCommand,
   DeleteConfigurationSetEventDestinationCommand,
   GetEmailAddressInsightsCommand,
+  CreateImportJobCommand,
+  GetImportJobCommand,
+  ListImportJobsCommand,
+  CreateExportJobCommand,
+  GetExportJobCommand,
+  ListExportJobsCommand,
 } from "@aws-sdk/client-sesv2";
 
 export interface SesService {
@@ -340,6 +346,74 @@ export interface SesService {
       isRandomInput: string;
     };
   }>;
+
+  createImportJob(options: {
+    destinationType: "CONTACT_LIST" | "SUPPRESSION_LIST";
+    action: "PUT" | "DELETE";
+    s3Url: string;
+    dataFormat: "CSV" | "JSON";
+    contactListName?: string;
+  }): Promise<{ jobId: string }>;
+
+  getImportJob(jobId: string): Promise<{
+    jobId: string;
+    destinationType: string;
+    action: string;
+    s3Url: string;
+    dataFormat: string;
+    jobStatus: string;
+    createdTimestamp: Date;
+    completedTimestamp?: Date;
+    processedRecordsCount?: number;
+    failedRecordsCount?: number;
+    failureMessage?: string;
+    failedRecordsS3Url?: string;
+  } | null>;
+
+  listImportJobs(destinationType?: string): Promise<
+    Array<{
+      jobId: string;
+      destinationType: string;
+      jobStatus: string;
+      createdTimestamp: Date;
+      processedRecordsCount?: number;
+      failedRecordsCount?: number;
+    }>
+  >;
+
+  createExportJob(options: {
+    sourceType: "METRICS_DATA" | "MESSAGE_INSIGHTS";
+    dataFormat: "CSV" | "JSON";
+    startDate: Date;
+    endDate: Date;
+    metrics?: string[];
+    identity?: string;
+    fromAddress?: string;
+    destination?: string;
+  }): Promise<{ jobId: string }>;
+
+  getExportJob(jobId: string): Promise<{
+    jobId: string;
+    sourceType: string;
+    jobStatus: string;
+    dataFormat: string;
+    s3Url?: string;
+    createdTimestamp: Date;
+    completedTimestamp?: Date;
+    processedRecordsCount?: number;
+    exportedRecordsCount?: number;
+    failureMessage?: string;
+  } | null>;
+
+  listExportJobs(sourceType?: string, status?: string): Promise<
+    Array<{
+      jobId: string;
+      sourceType: string;
+      jobStatus: string;
+      createdTimestamp: Date;
+      completedTimestamp?: Date;
+    }>
+  >;
 }
 
 export function createSesService(client: SESv2Client): SesService {
@@ -1341,6 +1415,219 @@ export function createSesService(client: SESv2Client): SesService {
           isRandomInput: e?.IsRandomInput?.ConfidenceVerdict ?? "UNKNOWN",
         },
       };
+    },
+
+    async createImportJob(options) {
+      const destination: Record<string, unknown> = {};
+      if (options.destinationType === "CONTACT_LIST") {
+        destination.ContactListDestination = {
+          ContactListName: options.contactListName,
+          ContactListImportAction: options.action,
+        };
+      } else {
+        destination.SuppressionListDestination = {
+          SuppressionListImportAction: options.action,
+        };
+      }
+
+      const response = await client.send(
+        new CreateImportJobCommand({
+          ImportDestination: destination as any,
+          ImportDataSource: {
+            S3Url: options.s3Url,
+            DataFormat: options.dataFormat,
+          },
+        })
+      );
+
+      return { jobId: response.JobId! };
+    },
+
+    async getImportJob(jobId: string) {
+      try {
+        const response = await client.send(
+          new GetImportJobCommand({ JobId: jobId })
+        );
+
+        let destinationType = "UNKNOWN";
+        let action = "UNKNOWN";
+        if (response.ImportDestination?.ContactListDestination) {
+          destinationType = "CONTACT_LIST";
+          action = response.ImportDestination.ContactListDestination.ContactListImportAction!;
+        } else if (response.ImportDestination?.SuppressionListDestination) {
+          destinationType = "SUPPRESSION_LIST";
+          action = response.ImportDestination.SuppressionListDestination.SuppressionListImportAction!;
+        }
+
+        return {
+          jobId: response.JobId!,
+          destinationType,
+          action,
+          s3Url: response.ImportDataSource?.S3Url ?? "",
+          dataFormat: response.ImportDataSource?.DataFormat ?? "CSV",
+          jobStatus: response.JobStatus ?? "UNKNOWN",
+          createdTimestamp: response.CreatedTimestamp ?? new Date(),
+          completedTimestamp: response.CompletedTimestamp,
+          processedRecordsCount: response.ProcessedRecordsCount,
+          failedRecordsCount: response.FailedRecordsCount,
+          failureMessage: response.FailureInfo?.ErrorMessage,
+          failedRecordsS3Url: response.FailureInfo?.FailedRecordsS3Url,
+        };
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "NotFoundException") {
+          return null;
+        }
+        throw err;
+      }
+    },
+
+    async listImportJobs(destinationType?: string) {
+      const results: Array<{
+        jobId: string;
+        destinationType: string;
+        jobStatus: string;
+        createdTimestamp: Date;
+        processedRecordsCount?: number;
+        failedRecordsCount?: number;
+      }> = [];
+      let nextToken: string | undefined;
+
+      do {
+        const response = await client.send(
+          new ListImportJobsCommand({
+            ImportDestinationType: destinationType as "SUPPRESSION_LIST" | "CONTACT_LIST" | undefined,
+            ...(nextToken && { NextToken: nextToken }),
+          })
+        );
+
+        if (response.ImportJobs) {
+          for (const job of response.ImportJobs) {
+            let destType = "UNKNOWN";
+            if (job.ImportDestination?.ContactListDestination) {
+              destType = "CONTACT_LIST";
+            } else if (job.ImportDestination?.SuppressionListDestination) {
+              destType = "SUPPRESSION_LIST";
+            }
+
+            results.push({
+              jobId: job.JobId!,
+              destinationType: destType,
+              jobStatus: job.JobStatus ?? "UNKNOWN",
+              createdTimestamp: job.CreatedTimestamp ?? new Date(),
+              processedRecordsCount: job.ProcessedRecordsCount,
+              failedRecordsCount: job.FailedRecordsCount,
+            });
+          }
+        }
+        nextToken = response.NextToken;
+      } while (nextToken);
+
+      return results;
+    },
+
+    async createExportJob(options) {
+      const dataSource: Record<string, unknown> = {};
+
+      if (options.sourceType === "METRICS_DATA") {
+        const metrics = (options.metrics ?? ["SEND", "DELIVERY", "PERMANENT_BOUNCE", "COMPLAINT"]).map(
+          (m) => ({ Name: m, Aggregation: "VOLUME" })
+        );
+        const dimensions: Record<string, string[]> = {};
+        if (options.identity) {
+          dimensions.EMAIL_IDENTITY = [options.identity];
+        } else {
+          dimensions.EMAIL_IDENTITY = ["*"];
+        }
+        dataSource.MetricsDataSource = {
+          Dimensions: dimensions,
+          Namespace: "VDM",
+          Metrics: metrics,
+          StartDate: options.startDate,
+          EndDate: options.endDate,
+        };
+      } else {
+        const filters: Record<string, unknown> = {};
+        if (options.fromAddress) filters.FromEmailAddress = [options.fromAddress];
+        if (options.destination) filters.Destination = [options.destination];
+        dataSource.MessageInsightsDataSource = {
+          StartDate: options.startDate,
+          EndDate: options.endDate,
+          ...(Object.keys(filters).length > 0 && { Include: filters }),
+        };
+      }
+
+      const response = await client.send(
+        new CreateExportJobCommand({
+          ExportDataSource: dataSource as any,
+          ExportDestination: {
+            DataFormat: options.dataFormat,
+          },
+        })
+      );
+
+      return { jobId: response.JobId! };
+    },
+
+    async getExportJob(jobId: string) {
+      try {
+        const response = await client.send(
+          new GetExportJobCommand({ JobId: jobId })
+        );
+
+        return {
+          jobId: response.JobId!,
+          sourceType: response.ExportSourceType ?? "UNKNOWN",
+          jobStatus: response.JobStatus ?? "UNKNOWN",
+          dataFormat: response.ExportDestination?.DataFormat ?? "CSV",
+          s3Url: response.ExportDestination?.S3Url,
+          createdTimestamp: response.CreatedTimestamp ?? new Date(),
+          completedTimestamp: response.CompletedTimestamp,
+          processedRecordsCount: response.Statistics?.ProcessedRecordsCount,
+          exportedRecordsCount: response.Statistics?.ExportedRecordsCount,
+          failureMessage: response.FailureInfo?.ErrorMessage,
+        };
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "NotFoundException") {
+          return null;
+        }
+        throw err;
+      }
+    },
+
+    async listExportJobs(sourceType?: string, status?: string) {
+      const results: Array<{
+        jobId: string;
+        sourceType: string;
+        jobStatus: string;
+        createdTimestamp: Date;
+        completedTimestamp?: Date;
+      }> = [];
+      let nextToken: string | undefined;
+
+      do {
+        const response = await client.send(
+          new ListExportJobsCommand({
+            ExportSourceType: sourceType as "METRICS_DATA" | "MESSAGE_INSIGHTS" | undefined,
+            JobStatus: status as "CREATED" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED" | undefined,
+            ...(nextToken && { NextToken: nextToken }),
+          })
+        );
+
+        if (response.ExportJobs) {
+          for (const job of response.ExportJobs) {
+            results.push({
+              jobId: job.JobId!,
+              sourceType: job.ExportSourceType ?? "UNKNOWN",
+              jobStatus: job.JobStatus ?? "UNKNOWN",
+              createdTimestamp: job.CreatedTimestamp ?? new Date(),
+              completedTimestamp: job.CompletedTimestamp,
+            });
+          }
+        }
+        nextToken = response.NextToken;
+      } while (nextToken);
+
+      return results;
     },
   };
 }

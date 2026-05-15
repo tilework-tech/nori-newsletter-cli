@@ -585,3 +585,85 @@ interface MailboxValidation {
 - Does not create DNS records (DKIM, SPF, DMARC are DNS-only)
 - Does not create event destinations (requires destination-specific config: SNS ARN, EventBridge ARN, etc.)
 - Does not wait for identity verification (DNS propagation takes up to 72 hours)
+
+## Bulk Import/Export Job APIs
+
+### CreateImportJob
+- Endpoint: `POST /v2/email/import-jobs`
+- Two import destination types: `SuppressionListDestination` or `ContactListDestination` (mutually exclusive)
+- Data source: S3 URL (`s3://<bucket>/<object>`), supports `CSV` or `JSON` DataFormat
+- Response: `{ JobId: string }`
+- Max 20 concurrent import jobs
+- S3 bucket must be in same AWS region as SES
+- Requires production access (not sandbox)
+- SES needs `s3:GetObject` permission on the bucket via bucket policy
+
+### Import Destination Types
+```typescript
+interface ImportDestination {
+  SuppressionListDestination?: { SuppressionListImportAction: "PUT" | "DELETE" };
+  ContactListDestination?: { ContactListName: string; ContactListImportAction: "PUT" | "DELETE" };
+}
+```
+- `PUT` = add/upsert, `DELETE` = remove
+
+### Import CSV Formats
+**Suppression list PUT** (no header row):
+```
+recipient1@example.com,BOUNCE
+recipient2@example.com,COMPLAINT
+```
+
+**Suppression list DELETE** (no header row, email only):
+```
+recipient3@example.com
+```
+
+**Contact list PUT** (requires header row):
+```
+emailAddress,unsubscribeAll,attributesData,topicPreferences.Sports
+example1@amazon.com,false,{"Name": "John"},OPT_IN
+```
+
+**Contact list JSON** (newline-delimited):
+```json
+{"emailAddress":"example1@amazon.com","unsubscribeAll":false,"topicPreferences":[{"topicName":"Sports","subscriptionStatus":"OPT_IN"}]}
+```
+
+### Import Record Limits
+- Suppression PUT: max 100,000 per S3 object
+- Suppression DELETE: max 10,000 per S3 object
+- Contact list PUT: max 1,000,000 per import job
+
+### GetImportJob
+- Returns: JobId, ImportDestination, ImportDataSource, FailureInfo, JobStatus, CreatedTimestamp, CompletedTimestamp, ProcessedRecordsCount, FailedRecordsCount
+- `FailureInfo`: `{ FailedRecordsS3Url?: string; ErrorMessage?: string }` — pre-signed URL to failed records
+- Bad records don't fail the job — it completes with `FailedRecordsCount > 0`
+
+### ListImportJobs
+- Filterable by `ImportDestinationType`: `"SUPPRESSION_LIST"` or `"CONTACT_LIST"`
+- Standard token-based pagination
+- Returns `ImportJobSummary[]`: JobId, ImportDestination, JobStatus, CreatedTimestamp, ProcessedRecordsCount, FailedRecordsCount
+
+### JobStatus Enum
+- Values: `CREATED`, `PROCESSING`, `COMPLETED`, `FAILED`, `CANCELLED`
+- Shared between import and export jobs
+
+### CreateExportJob
+- Two mutually exclusive data sources: `MetricsDataSource` or `MessageInsightsDataSource`
+- `MetricsDataSource`: requires VDM, supports SEND/DELIVERY/BOUNCE/COMPLAINT/OPEN/CLICK metrics with VOLUME or RATE aggregation, filterable by EMAIL_IDENTITY/CONFIGURATION_SET/ISP dimensions
+- `MessageInsightsDataSource`: per-message tracking, filterable by from address, destination, subject, ISP, delivery events, engagement events. Max 10,000 results.
+- `ExportDestination`: `{ DataFormat: "CSV" | "JSON", S3Url?: string }` — S3Url is populated by AWS in the response (pre-signed URL, expires 5 min but refreshable via GetExportJob)
+- Rate limit: 1 req/sec
+
+### GetExportJob / ListExportJobs
+- `GetExportJob`: returns JobId, ExportSourceType, JobStatus, ExportDestination (with S3Url), ExportDataSource, timestamps, FailureInfo, Statistics (ProcessedRecordsCount, ExportedRecordsCount)
+- `ListExportJobs`: filterable by both `ExportSourceType` ("METRICS_DATA" | "MESSAGE_INSIGHTS") and `JobStatus`
+- Standard pagination
+
+### Key Quirks
+- Export pre-signed URL expires after 5 minutes — can be refreshed by calling GetExportJob again
+- No batch import validation — bad records silently fail, check FailedRecordsCount after completion
+- S3 bucket policy must grant `ses.amazonaws.com` GetObject permission
+- Import jobs require production access (sandbox can't use them)
+- AWS SDK enum inconsistency: docs mention `ERROR` but actual enum has `FAILED`
