@@ -85,6 +85,14 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | 10. Email Address Validation | Done |
 | 11. Bulk Import/Export via S3 | Not started |
 
+## High-Level Abstraction Features
+
+| Feature | Status |
+|---------|--------|
+| Health dashboard | Done |
+| Pre-send preflight checks | Done |
+| Contact/suppression cleanup | Done |
+
 ## Completed: Email Templates
 
 Added a `templates` command group with six subcommands:
@@ -172,3 +180,42 @@ Added a `validate` command group with two subcommands that use the SES `GetEmail
 - `src/program.ts` — Registered the validate command, updated program description
 - `tests/helpers.ts` — Extended mock with `validateBehavior` option and `getEmailAddressInsights` default implementation (all-valid)
 - `tests/commands/validate.test.ts` — 8 new tests (178 total, all passing)
+
+## Completed: High-Level Abstraction Commands (health, preflight, cleanup)
+
+Added three high-level commands that compose existing SES service methods into useful newsletter workflows, abstracting over SES's rough edges:
+
+### `health` — Newsletter health dashboard
+Aggregates account status, identity verification, contact list health, and suppression list statistics into a single view. Composes 5 existing service methods in parallel.
+- Shows account quota usage, enforcement status, production/sandbox mode
+- Shows from-address identity verification and DKIM status
+- Shows subscribed/unsubscribed contact counts
+- Shows suppression list totals by reason (bounce/complaint)
+- Warns when from address is not registered in SES
+
+### `preflight <template>` — Pre-send validation
+Runs all precondition checks before sending and reports PASS/WARN/FAIL per check:
+- Account: sending enabled, enforcement status, production access
+- Identity: from address verified for sending
+- Template: exists in SES, optionally renders with `--data <json>`
+- Recipients: subscribed contacts exist
+- Quota: headroom sufficient for recipient count
+- Suppression: no overlap between contacts and suppression list
+- Exit code 1 if any check FAILs; 0 if only WARNs
+
+### `cleanup` — Contact/suppression list reconciliation
+Cross-references subscribed contacts with the account suppression list using case-insensitive email matching:
+- `cleanup report` — lists overlapping contacts with suppression reason and date
+- `cleanup run --confirm` — takes action on overlapping contacts: `--action unsubscribe` (default, sets UnsubscribeAll) or `--action remove` (deletes contact). Requires `--confirm` flag.
+
+### Files changed
+- `src/commands/health.ts` — New command file
+- `src/commands/preflight.ts` — New command file
+- `src/commands/cleanup.ts` — New command file
+- `src/lib/email.ts` — New utility: `extractEmail()` extracts bare email from `"Name <email>"` format
+- `src/program.ts` — Registered three new commands, updated program description
+- `tests/helpers.ts` — Added `seedIdentities` option to `MockSesServiceOptions`
+- `tests/commands/health.test.ts` — 4 new tests
+- `tests/commands/preflight.test.ts` — 8 new tests
+- `tests/commands/cleanup.test.ts` — 7 new tests
+- Total: 198 tests, all passing

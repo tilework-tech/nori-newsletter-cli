@@ -13,6 +13,9 @@ import { createBulkSendCommand } from "./commands/bulk-send.js";
 import { createIdentitiesCommand } from "./commands/identities.js";
 import { createConfigSetsCommand } from "./commands/config-sets.js";
 import { createValidateCommand } from "./commands/validate.js";
+import { createHealthCommand } from "./commands/health.js";
+import { createPreflightCommand } from "./commands/preflight.js";
+import { createCleanupCommand } from "./commands/cleanup.js";
 
 export function createProgram(
   ses: SesService,
@@ -33,7 +36,9 @@ export function createProgram(
         "'templates' to manage reusable email templates, " +
         "'identities' to manage verified sending identities, " +
         "'config-sets' to manage configuration sets and event destinations, " +
-        "and 'validate' to check email address deliverability."
+        "'validate' to check email address deliverability, " +
+        "'health' for a newsletter dashboard, 'preflight' for pre-send checks, " +
+        "and 'cleanup' to reconcile contacts with the suppression list."
     )
     .showSuggestionAfterError(true)
     .showHelpAfterError("(use --help for usage information)")
@@ -78,6 +83,9 @@ Environment variables:
   program.addCommand(createIdentitiesCommand(ses, out, getConfig));
   program.addCommand(createConfigSetsCommand(ses, out, getConfig));
   program.addCommand(createValidateCommand(ses, out, getConfig));
+  program.addCommand(createHealthCommand(ses, out, getConfig));
+  program.addCommand(createPreflightCommand(ses, out, getConfig));
+  program.addCommand(createCleanupCommand(ses, out, getConfig));
 
   return program;
 }

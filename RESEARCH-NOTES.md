@@ -508,3 +508,42 @@ interface MailboxValidation {
 - Feature announced December 2025 — may not be available in all regions
 - Sandbox availability: not explicitly documented, but likely works (validation doesn't send email)
 - IAM permissions needed: `ses:GetEmailAddressInsights` and `iam:CreateServiceLinkedRole`
+
+## High-Level Abstraction Features Research
+
+### Suppression List / Contact List Overlap Problem
+- SES treats suppression lists and contact lists as entirely separate systems — no cross-referencing API exists
+- Sending to a suppressed address: SES **accepts** the message (HTTP 200, returns MessageId), but **does not send** it
+- **Counts toward daily quota** but does NOT count toward bounce/complaint reputation metrics
+- A bounce event IS generated with `bounceSubType: "OnAccountSuppressionList"` (only if event destinations are configured)
+- **Case sensitivity mismatch**: Suppression list lookups are case-sensitive (`User@Example.com` ≠ `user@example.com`) but email sending is case-insensitive. Must normalize case for cross-referencing.
+- Cross-referencing approach: Paginate `ListSuppressedDestinations`, build a Set (lowercased), then compare against contacts (lowercased)
+- Only hard bounces trigger automatic suppression; soft bounces do not
+- Gmail does NOT report complaints to SES — major blind spot
+
+### Pre-Send Validation Checks
+- `GetAccount`: check `SendingEnabled`, `ProductionAccessEnabled`, `EnforcementStatus`, quota headroom (`Max24HourSend - SentLast24Hours`)
+- `GetEmailIdentity(fromAddress)`: check `VerifiedForSendingStatus` (boolean) and `VerificationStatus` (enum)
+- `TestRenderEmailTemplate`: catches missing variables before send — critical because SES returns a MessageId for template render failures but never delivers
+- Template variables: No API to introspect required variables. Must use `TestRenderEmailTemplate` with sample data to discover missing fields via error.
+- Sandbox mode: can only send to verified addresses, max 200/day, 1/sec. CLI should warn loudly.
+
+### Contact List Aggregate Statistics
+- **No aggregate statistics API** for contact lists. `GetContactList` returns only metadata (name, timestamps, topics, tags)
+- Must paginate `ListContacts` to count contacts — no total count in response
+- Feature request filed and closed without resolution
+- Can filter by `FilteredStatus` (OPT_IN/OPT_OUT) and `TopicFilter` on `ListContacts`
+
+### Health Dashboard Metrics
+- `GetAccount`: sending quota, enforcement status, production/sandbox mode, sending enabled
+- `BatchGetMetricData` (requires VDM): SEND, DELIVERY, PERMANENT_BOUNCE, COMPLAINT rates over time
+- Industry thresholds: bounce rate < 5%, complaint rate < 0.1%, delivery rate > 95%
+- VDM only tracks metrics from single-recipient emails; multi-recipient excluded
+- Apple Mail Privacy Protection inflates open rates
+
+### Cleanup Best Practices
+- AWS recommends **removing** bounced addresses entirely (hard bounces)
+- For complaints: AWS recommends not re-sending, use `UnsubscribeAll: true` or `OPT_OUT` to preserve contact record
+- Account suppression list is a safety net, not a replacement for list hygiene
+- Two strategies: `DeleteContact` for hard bounces, `UpdateContact` with `UnsubscribeAll: true` for complaints
+- No event for "added to suppression list" — must infer from BOUNCE/COMPLAINT events

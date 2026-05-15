@@ -5,7 +5,7 @@ Path: @/
 ### Overview
 
 - CLI tool for managing and sending newsletters via AWS SES, built with Commander and TypeScript
-- Handles full subscriber lifecycle (CRUD, CSV import, unsubscribe visibility, contact status inspection, attribute updates, resubscription) through SES contact lists, plus topic-based email delivery with automatic unsubscribe support, bulk template-based sending via the SES `SendBulkEmail` API, account-level suppression list management, contact list management (view, update, delete), sending statistics/account health monitoring, reusable email template management with Handlebars personalization, email/domain identity verification and DKIM management, configuration set management with event destination routing, and email address validation via the SES `GetEmailAddressInsights` API
+- Provides both low-level SES operations (contact management, sending, suppression, templates, identities, config sets, validation) and high-level abstraction commands (`health` dashboard, `preflight` pre-send checks, `cleanup` contact/suppression reconciliation) that compose multiple service calls into newsletter-specific workflows
 - Sends emails concurrently with automatic rate throttling based on the account's SES sending quota. The `send` command sends individually via `SendEmail`; the `bulk-send` command batches up to 50 recipients per API call via `SendBulkEmail`
 - Published to npm as `nori-newsletter-cli`, installable globally via `npm install -g nori-newsletter-cli`
 
@@ -14,6 +14,7 @@ Path: @/
 - Entry point is `@/src/index.ts`, which wires up the SES client, output, config, and Commander program
 - All CLI commands live in `@/src/commands/` and are registered in `@/src/program.ts`
 - AWS SES operations are abstracted behind the `SesService` interface in `@/src/services/ses.ts`, making commands testable with a mock implementation
+- Shared utility functions (email parsing, validation, CSV parsing, HTML extraction) live in `@/src/lib/` and are used directly by commands
 - Configuration is loaded from `newsletter.config.json` in the working directory via `@/src/config.ts`
 - Tests in `@/tests/` mirror the `src/` directory structure and use a shared mock harness in `@/tests/helpers.ts`
 
@@ -33,7 +34,8 @@ Path: @/
 - Source files (`src/`) are included in the published package alongside compiled output (`dist/`) for source map debugging and transparency
 - The `SesService` interface (`@/src/services/ses.ts`) includes `getMaxSendRate()`, which calls `GetAccountCommand` to read the account's `SendQuota.MaxSendRate`. It falls back to 1/sec on any error or missing quota, treating the safest rate as default
 - The send command makes an additional AWS API call (`GetAccountCommand`) before each send run to determine the throttle rate
-- Several commands operate at the AWS account level and do not depend on `newsletter.config.json`: `suppression` (account-level suppression list), `lists` (contact list management), `stats` (account health and delivery metrics), `templates` (email template management), `identities` (email/domain identity verification and DKIM management), and `config-sets` (configuration set and event destination management). The `validate check` subcommand also operates at the account level without config. Their factory functions still accept `getConfig` for consistency with the shared command factory signature. The `validate list` subcommand does depend on config, since it validates all contacts in the configured contact list
+- Several commands operate at the AWS account level and do not depend on `newsletter.config.json`: `suppression`, `lists`, `stats`, `templates`, `identities`, `config-sets`, and `validate check`. Their factory functions still accept `getConfig` for consistency with the shared command factory signature. The abstraction commands (`health`, `preflight`, `cleanup`) and `validate list` all depend on config
+- The abstraction commands (`health`, `preflight`, `cleanup`) are a distinct architectural layer: they compose existing `SesService` methods without adding new AWS API calls. They exist because SES treats suppression lists and contact lists as separate systems with no cross-referencing, has silent failure modes (suppressed addresses still count toward quota), and requires multiple API calls to assemble a complete picture of newsletter health
 - The `bulk-send` command uses `SendBulkEmail`, which does **not** support `ListManagementOptions` (the SES feature that auto-injects unsubscribe links). Because of this, `bulk-send` fetches opted-in contacts client-side via `listContacts` instead of relying on SES-managed unsubscribe filtering. This is a known AWS API limitation, not a design oversight
 - The `stats send` subcommand requires VDM (Virtual Deliverability Manager) to be enabled on the SES account. VDM data is retained for 60 days, which caps the `--days` option at 60
 

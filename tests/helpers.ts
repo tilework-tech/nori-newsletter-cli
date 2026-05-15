@@ -52,6 +52,13 @@ export interface MockSesServiceOptions {
     values: number[];
   }>;
   metricsErrors?: Array<{ metric: string; message: string }>;
+  seedIdentities?: Array<{
+    name: string;
+    type?: string;
+    verificationStatus?: string;
+    verifiedForSending?: boolean;
+    sendingEnabled?: boolean;
+  }>;
 }
 
 interface SentBulkEmail {
@@ -174,6 +181,25 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
   const templates = new Map<string, MockTemplate>();
   const identities = new Map<string, MockIdentity>();
   const configSets = new Map<string, MockConfigSet>();
+
+  if (options?.seedIdentities) {
+    for (const seed of options.seedIdentities) {
+      const isDomain = !seed.name.includes("@");
+      identities.set(seed.name, {
+        name: seed.name,
+        type: seed.type ?? (isDomain ? "DOMAIN" : "EMAIL_ADDRESS"),
+        verificationStatus: seed.verificationStatus ?? "SUCCESS",
+        verifiedForSending: seed.verifiedForSending ?? true,
+        sendingEnabled: seed.sendingEnabled ?? true,
+        feedbackForwardingStatus: true,
+        dkimStatus: isDomain ? "SUCCESS" : "NOT_STARTED",
+        dkimSigningEnabled: isDomain,
+        dkimTokens: isDomain ? ["token-1", "token-2", "token-3"] : undefined,
+        dkimHostedZone: isDomain ? "dkim.amazonses.com" : undefined,
+        dkimCurrentKeyLength: isDomain ? "RSA_2048_BIT" : undefined,
+      });
+    }
+  }
 
   return {
     getSentEmails() {
