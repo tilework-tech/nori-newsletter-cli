@@ -10,7 +10,7 @@ Path: @/src/lib
 ### How it fits into the larger codebase
 
 - Commands in `@/src/commands/` import these utilities directly -- they are not injected via dependency injection
-- `extractEmail()` (`@/src/lib/email.ts`) is used by `health` and `preflight` commands to parse the bare email address from the `fromAddress` config field, which may be in `"Name <email>"` format
+- `extractEmail()` (`@/src/lib/email.ts`) is used by `health`, `preflight`, and `setup` commands to parse the bare email address from the `fromAddress` config field, which may be in `"Name <email>"` format
 - `isValidEmail()` (`@/src/lib/validation.ts`) is used by `contacts add`, `contacts import`, and `suppression add` to reject invalid emails before calling the service
 - `parseCsv()` (`@/src/lib/csv.ts`) is used by `contacts import` to parse CSV files into contact records
 - `extractSubject()` (`@/src/lib/html.ts`) is used by the `send` command to pull the email subject from an HTML file's `<title>` tag

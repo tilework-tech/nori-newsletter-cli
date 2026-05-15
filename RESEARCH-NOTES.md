@@ -547,3 +547,41 @@ interface MailboxValidation {
 - Account suppression list is a safety net, not a replacement for list hygiene
 - Two strategies: `DeleteContact` for hard bounces, `UpdateContact` with `UnsubscribeAll: true` for complaints
 - No event for "added to suppression list" — must infer from BOUNCE/COMPLAINT events
+
+### Setup Command Research
+
+#### SES Setup Order of Operations
+1. Create configuration set (must exist before assigning to identity)
+2. Add event destination to config set (at minimum: bounces, complaints)
+3. Verify from-address identity (email or domain)
+4. Create contact list with topic
+5. Check account status (sandbox/production, sending enabled)
+
+#### Idempotency Requirements
+- All create operations should check-then-create: use `getIdentity`/`getContactList`/`getConfigSet` to check existence before `createIdentity`/`createContactList`/`createConfigSet`
+- Alternative: call create and catch `AlreadyExistsException` (existing `init` pattern)
+- For setup check: use the get methods to verify existence and status without creating
+
+#### Existing SesService Methods Available (No New Methods Needed)
+- `getAccountInfo()` — account status, quotas, sandbox/production
+- `createIdentity(identity)` / `getIdentity(identity)` — identity lifecycle
+- `createContactList(name, topicName)` / `getContactList(name)` — contact list lifecycle
+- `extractEmail(fromAddress)` — extracts bare email from "Name <email>" format
+
+#### CLI Design Constraints (Agentic CLI)
+- No interactivity — all parameters via flags
+- No colors/spinners — plain text output
+- Single-shot commands — no wizards or multi-step prompts
+- Clear error messages with context
+
+#### Design Decision: check/run Subcommand Pattern
+- Follows existing `cleanup report`/`cleanup run` pattern in codebase
+- `setup check` = read-only audit (like `cleanup report`)
+- `setup run` = create missing infrastructure (like `cleanup run`)
+- Separating check from run gives agents control over when to create resources
+
+#### What Setup Does NOT Do
+- Does not request production access (requires manual AWS review)
+- Does not create DNS records (DKIM, SPF, DMARC are DNS-only)
+- Does not create event destinations (requires destination-specific config: SNS ARN, EventBridge ARN, etc.)
+- Does not wait for identity verification (DNS propagation takes up to 72 hours)

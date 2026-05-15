@@ -92,6 +92,7 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | Health dashboard | Done |
 | Pre-send preflight checks | Done |
 | Contact/suppression cleanup | Done |
+| Setup/configuration audit | Done |
 
 ## Completed: Email Templates
 
@@ -219,3 +220,26 @@ Cross-references subscribed contacts with the account suppression list using cas
 - `tests/commands/preflight.test.ts` — 8 new tests
 - `tests/commands/cleanup.test.ts` — 7 new tests
 - Total: 198 tests, all passing
+
+## Completed: Setup Command (SES Infrastructure Provisioning)
+
+Added a `setup` command with two subcommands that orchestrate SES newsletter infrastructure setup into a single workflow, abstracting over the multi-step process of getting SES ready for sending:
+
+### `setup check` — Configuration audit
+Reads existing SES state and reports completeness:
+- Account: sending enabled check ([FAIL] if disabled), sandbox warning ([WARN])
+- Identity: from-address verification status ([OK], [MISSING], or [PENDING])
+- Contact list: existence check ([OK] or [MISSING])
+- Exit code 1 if any [FAIL], [MISSING], or [PENDING]; 0 otherwise
+
+### `setup run` — Idempotent infrastructure creation
+Creates missing SES resources, safe to run multiple times:
+- Checks from-address identity; creates if missing, reports DKIM DNS records for domains
+- Creates contact list with topic; skips if already exists (catches AlreadyExistsException)
+- Reports what was created vs what already existed
+
+### Files changed
+- `src/commands/setup.ts` — New command file with two subcommands
+- `src/program.ts` — Registered the setup command, updated program description
+- `tests/commands/setup.test.ts` — 11 new tests
+- Total: 213 tests, all passing

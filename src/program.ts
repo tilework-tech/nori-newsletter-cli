@@ -16,6 +16,7 @@ import { createValidateCommand } from "./commands/validate.js";
 import { createHealthCommand } from "./commands/health.js";
 import { createPreflightCommand } from "./commands/preflight.js";
 import { createCleanupCommand } from "./commands/cleanup.js";
+import { createSetupCommand } from "./commands/setup.js";
 
 export function createProgram(
   ses: SesService,
@@ -38,7 +39,8 @@ export function createProgram(
         "'config-sets' to manage configuration sets and event destinations, " +
         "'validate' to check email address deliverability, " +
         "'health' for a newsletter dashboard, 'preflight' for pre-send checks, " +
-        "and 'cleanup' to reconcile contacts with the suppression list."
+        "'cleanup' to reconcile contacts with the suppression list, " +
+        "and 'setup' to configure SES infrastructure for sending."
     )
     .showSuggestionAfterError(true)
     .showHelpAfterError("(use --help for usage information)")
@@ -86,6 +88,7 @@ Environment variables:
   program.addCommand(createHealthCommand(ses, out, getConfig));
   program.addCommand(createPreflightCommand(ses, out, getConfig));
   program.addCommand(createCleanupCommand(ses, out, getConfig));
+  program.addCommand(createSetupCommand(ses, out, getConfig));
 
   return program;
 }
