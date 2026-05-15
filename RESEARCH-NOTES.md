@@ -725,3 +725,53 @@ example1@amazon.com,false,{"Name": "John"},OPT_IN
 - `listSuppressedDestinations()` provides suppression list for growth analysis
 - Rate calculations done in command layer, not service layer
 - Falls back gracefully when VDM not enabled (metrics will error/empty)
+
+## Domain Check Command Research
+
+### DNS Lookups via Node.js `dns.promises`
+- `dns.promises.resolveMx(domain)` — returns `Array<{ priority: number, exchange: string }>`
+- `dns.promises.resolveTxt(domain)` — returns `string[][]` (TXT records split into 255-byte chunks, must `.join('')` inner arrays)
+- `dns.promises.resolveCname(domain)` — returns `string[]` of CNAME targets
+- Error codes: `ENOTFOUND` (domain doesn't exist), `ENODATA` (domain exists but no records of this type), `ETIMEOUT`, `ESERVFAIL`
+- Long TXT records are split across sub-array elements — always join before parsing
+- `resolveCname` throws `ENODATA` if target has A record instead of CNAME
+- DNS resolve methods do NOT read `/etc/hosts` — always query network
+
+### SPF Record Format for SES
+- TXT record on root domain: `v=spf1 include:amazonses.com ~all`
+- Only ONE SPF TXT record per domain — multiple SPF records cause evaluation failures
+- For custom MAIL FROM domain, SPF record goes on the MAIL FROM subdomain, not root
+- Use `~all` (softfail) or `-all` (hardfail)
+
+### DMARC Record Format
+- TXT record at `_dmarc.{domain}`
+- Minimal: `v=DMARC1; p=none;`
+- Recommended: `v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com;`
+- Policy values: `none` (monitor), `quarantine` (spam folder), `reject` (block)
+- DMARC passes if EITHER SPF or DKIM passes alignment
+
+### DKIM DNS Records for SES
+- 3 CNAME records: `{token}._domainkey.{domain}` → `{token}.dkim.amazonses.com`
+- Some regions may use region-specific DKIM domains
+- SES `getIdentity()` returns tokens and `hostedZone` (the CNAME target domain)
+- Common misconfiguration: DNS provider appending apex domain to CNAME value
+
+### MX Records
+- NOT required on root domain for sending, but ARE required for custom MAIL FROM
+- Custom MAIL FROM MX: `10 feedback-smtp.{region}.amazonses.com` on the MAIL FROM subdomain
+- Some receiving servers check sender domain for MX records as deliverability heuristic
+
+### Diagnostic Check Design
+- **DKIM**: Look up each `{token}._domainkey.{domain}` CNAME, verify it points to `{token}.{hostedZone}`
+- **SPF**: Look up TXT records on domain, find `v=spf1`, check for `include:amazonses.com`
+- **DMARC**: Look up TXT on `_dmarc.{domain}`, check for `v=DMARC1`, report policy
+- **MX**: Look up MX records on domain, report whether domain can receive mail
+- **Identity**: Cross-reference with SES `getIdentity()` for verification and DKIM signing status
+- Both domain identity and email identity should be checked (domain verification inherits to email addresses)
+
+### Architecture Decision: DnsResolver Interface
+- Create `DnsResolver` interface for testability
+- Default implementation uses `dns.promises` from Node.js (no new dependencies)
+- Pass through `createProgram` options parameter to `createDomainCheckCommand`
+- Tests inject mock resolver via extended `runCommand` options parameter
+- Backward-compatible: all existing code paths unaffected

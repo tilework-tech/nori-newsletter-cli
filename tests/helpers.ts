@@ -2,6 +2,7 @@ import { CommanderError } from "commander";
 import type { SesService } from "../src/services/ses.js";
 import type { Output } from "../src/output.js";
 import type { NewsletterConfig } from "../src/config.js";
+import type { DnsResolver } from "../src/lib/dns.js";
 import { createProgram } from "../src/program.js";
 
 interface MockContact {
@@ -1083,10 +1084,11 @@ function createTestOutput(): Output & { stdout: string; stderr: string; exitCode
 export async function runCommand(
   ses: SesService,
   args: string[],
-  config?: NewsletterConfig
+  config?: NewsletterConfig,
+  options?: { dnsResolver?: DnsResolver }
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const out = createTestOutput();
-  const program = createProgram(ses, out, () => config ?? TEST_CONFIG);
+  const program = createProgram(ses, out, () => config ?? TEST_CONFIG, options);
 
   program.exitOverride();
 

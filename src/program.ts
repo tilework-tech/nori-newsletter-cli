@@ -2,6 +2,7 @@ import { Command } from "commander";
 import type { SesService } from "./services/ses.js";
 import type { Output } from "./output.js";
 import type { NewsletterConfig } from "./config.js";
+import type { DnsResolver } from "./lib/dns.js";
 import { createInitCommand } from "./commands/init.js";
 import { createContactsCommand } from "./commands/contacts.js";
 import { createSendCommand } from "./commands/send.js";
@@ -19,11 +20,13 @@ import { createCleanupCommand } from "./commands/cleanup.js";
 import { createSetupCommand } from "./commands/setup.js";
 import { createJobsCommand } from "./commands/jobs.js";
 import { createReputationCommand } from "./commands/reputation.js";
+import { createDomainCheckCommand } from "./commands/domain-check.js";
 
 export function createProgram(
   ses: SesService,
   out: Output,
-  getConfig: () => NewsletterConfig
+  getConfig: () => NewsletterConfig,
+  options?: { dnsResolver?: DnsResolver }
 ): Command {
   const program = new Command();
 
@@ -44,7 +47,8 @@ export function createProgram(
         "'cleanup' to reconcile contacts with the suppression list, " +
         "'setup' to configure SES infrastructure for sending, " +
         "'reputation' to analyze bounce/complaint rates against AWS thresholds, " +
-        "and 'jobs' to manage bulk import/export jobs via S3."
+        "'jobs' to manage bulk import/export jobs via S3, " +
+        "and 'domain-check' to verify DNS configuration for email deliverability."
     )
     .showSuggestionAfterError(true)
     .showHelpAfterError("(use --help for usage information)")
@@ -95,6 +99,7 @@ Environment variables:
   program.addCommand(createSetupCommand(ses, out, getConfig));
   program.addCommand(createJobsCommand(ses, out, getConfig));
   program.addCommand(createReputationCommand(ses, out, getConfig));
+  program.addCommand(createDomainCheckCommand(ses, out, getConfig, options?.dnsResolver));
 
   return program;
 }

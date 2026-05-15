@@ -94,6 +94,7 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | Contact/suppression cleanup | Done |
 | Setup/configuration audit | Done |
 | Reputation analysis | Done |
+| Domain DNS diagnostics | Done |
 
 ## Completed: Reputation Analysis
 
@@ -277,3 +278,28 @@ Added a `jobs` command group with six subcommands that wrap the SES v2 bulk impo
 - `src/program.ts` — Registered the jobs command, updated program description
 - `tests/helpers.ts` — Added MockImportJob/MockExportJob interfaces, extended mock with in-memory job storage and auto-incrementing IDs, added getImportJobCount/getExportJobCount inspection methods
 - `tests/commands/jobs.test.ts` — 12 new tests (226 total, all passing)
+
+## Completed: Domain DNS Diagnostics
+
+Added a `domain-check` command that performs comprehensive DNS and SES identity diagnostics for email deliverability, abstracting over SES's biggest blind spot: it generates DKIM tokens but never verifies DNS records are configured, and has zero awareness of SPF, DMARC, or MX.
+
+- `domain-check` — extracts domain from configured `fromAddress` and runs 5 diagnostic checks:
+  - **Identity**: checks SES identity registration and verification status (email identity with domain fallback)
+  - **DKIM**: cross-references SES DKIM tokens with actual DNS CNAME records (`{token}._domainkey.{domain}` → `{token}.{hostedZone}`)
+  - **SPF**: verifies TXT record with `v=spf1 include:amazonses.com`
+  - **DMARC**: verifies TXT record at `_dmarc.{domain}` with `v=DMARC1`, warns on `p=none` policy
+  - **MX**: verifies domain has MX records for receiving bounce/reply mail
+- Each check reports `[PASS]`, `[WARN]`, or `[FAIL]` with actionable recommendations
+- Supports `--domain <domain>` flag to override the configured domain
+- Handles email-only identities (skips DKIM CNAME checks when no tokens present)
+- DNS timeouts are reported as `[FAIL]`, missing optional records (SPF/DMARC/MX) as `[WARN]`
+- Exit code 1 if any check FAILs (missing identity, missing DKIM DNS, DNS timeout)
+- Uses Node's built-in `dns.promises` module — no new npm dependencies
+- Introduced `DnsResolver` interface for testability, threaded through `createProgram` options
+
+### Files changed
+- `src/lib/dns.ts` — New file: `DnsResolver` interface and `createDnsResolver()` factory wrapping `node:dns/promises`
+- `src/commands/domain-check.ts` — New command file with domain diagnostics
+- `src/program.ts` — Added optional `options` parameter to `createProgram`, registered domain-check command, updated description
+- `tests/helpers.ts` — Added `dnsResolver` option to `runCommand`
+- `tests/commands/domain-check.test.ts` — 11 new tests (252 total, all passing)
