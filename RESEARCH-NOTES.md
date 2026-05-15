@@ -775,3 +775,37 @@ example1@amazon.com,false,{"Name": "John"},OPT_IN
 - Pass through `createProgram` options parameter to `createDomainCheckCommand`
 - Tests inject mock resolver via extended `runCommand` options parameter
 - Backward-compatible: all existing code paths unaffected
+
+## Audit Command Research
+
+### Design Rationale
+- No SES-specific open-source CLI audit tool exists — this is an unserved niche
+- Current CLI requires running 4-5 separate commands (health, reputation, domain-check, setup check, cleanup report) to understand account readiness
+- Single unified command enables CI/CD integration and agentic usage
+
+### Checks to Include (from AWS Pre-Send Checklist)
+1. **Account**: sending enabled, enforcement status, production/sandbox, quota usage
+2. **Identity**: from-address verified, DKIM signing status
+3. **DNS**: SPF record with amazonses.com, DMARC record, DKIM CNAME records, MX records
+4. **Reputation**: bounce rate vs AWS thresholds (<2% OK, 2-5% WARN, >=5% CRITICAL), complaint rate (<0.05% OK, 0.05-0.1% WARN, >=0.1% CRITICAL)
+5. **Contacts**: subscribed count, suppression list overlap
+6. **Contact list**: exists and has correct topic configured
+
+### Architecture Decisions
+- Composes existing SesService methods — no new service methods needed
+- Requires DnsResolver (same pattern as domain-check)
+- Uses `[PASS]`/`[WARN]`/`[FAIL]` status labels (matches preflight and domain-check patterns)
+- Grouped into sections with `=== Section ===` headers (matches health and reputation patterns)
+- Summary line at end with pass/warn/fail counts
+- Exit code 1 if any FAIL, 0 otherwise (WARNs are non-blocking)
+- Falls back gracefully when VDM not enabled (reputation section shows "Metrics unavailable")
+- DNS failures reported as [FAIL] (timeouts) or [WARN] (missing optional records)
+
+### Methods Composed (all existing)
+- `getAccountInfo()` — account status, quotas
+- `getIdentity(email)` — verification, DKIM, mail-from
+- `getContactList(name)` — contact list existence
+- `listContacts(name, topic)` — subscribed contacts
+- `listSuppressedDestinations()` — suppressed addresses
+- `getMetrics()` — VDM sending metrics (when available)
+- DnsResolver: `resolveTxt`, `resolveCname`, `resolveMx` — DNS records

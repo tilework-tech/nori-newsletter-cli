@@ -10,11 +10,11 @@ Path: @/src/lib
 ### How it fits into the larger codebase
 
 - Pure utility functions (email, validation, csv, html) are imported directly by commands -- they are not injected via dependency injection
-- `extractEmail()` (`@/src/lib/email.ts`) is used by `health`, `preflight`, `setup`, and `domain-check` commands to parse the bare email address from the `fromAddress` config field, which may be in `"Name <email>"` format
+- `extractEmail()` (`@/src/lib/email.ts`) is used by `health`, `preflight`, `setup`, `domain-check`, and `audit` commands to parse the bare email address from the `fromAddress` config field, which may be in `"Name <email>"` format
 - `isValidEmail()` (`@/src/lib/validation.ts`) is used by `contacts add`, `contacts import`, and `suppression add` to reject invalid emails before calling the service
 - `parseCsv()` (`@/src/lib/csv.ts`) is used by `contacts import` to parse CSV files into contact records
 - `extractSubject()` (`@/src/lib/html.ts`) is used by the `send` command to pull the email subject from an HTML file's `<title>` tag
-- The `DnsResolver` interface (`@/src/lib/dns.ts`) is the exception to the direct-import pattern: it is injected via `createProgram()`'s `options` parameter into the `domain-check` command factory. This enables test injection of a mock DNS resolver without mocking Node internals. The interface mirrors the shape of `dns.promises` (methods: `resolveMx`, `resolveTxt`, `resolveCname`)
+- The `DnsResolver` interface (`@/src/lib/dns.ts`) is the exception to the direct-import pattern: it is injected via `createProgram()`'s `options` parameter into the `domain-check` and `audit` command factories. This enables test injection of a mock DNS resolver without mocking Node internals. The interface mirrors the shape of `dns.promises` (methods: `resolveMx`, `resolveTxt`, `resolveCname`)
 
 ### Core Implementation
 
@@ -22,7 +22,7 @@ Path: @/src/lib
 - **`validation.ts`:** `isValidEmail()` uses a simple regex checking for `user@domain.tld` structure (no whitespace, at least one dot in domain)
 - **`csv.ts`:** `parseCsv()` splits on newlines, skips the header row, and splits each line on commas. Expected columns: `email,name,company,added_date`. Empty/missing optional fields become `undefined`
 - **`html.ts`:** `extractSubject()` extracts text from the first `<title>` tag using a case-insensitive regex. Returns `null` if no title found or title is empty
-- **`dns.ts`:** Defines the `DnsResolver` interface with three methods (`resolveMx`, `resolveTxt`, `resolveCname`) and a `createDnsResolver()` factory that wraps Node's `dns.promises` module. The interface exists to decouple the `domain-check` command from Node's DNS implementation, enabling test injection. This is the first non-SES external dependency in the codebase and establishes the pattern for injecting external I/O dependencies through `createProgram()`'s `options` bag
+- **`dns.ts`:** Defines the `DnsResolver` interface with three methods (`resolveMx`, `resolveTxt`, `resolveCname`) and a `createDnsResolver()` factory that wraps Node's `dns.promises` module. The interface exists to decouple the `domain-check` and `audit` commands from Node's DNS implementation, enabling test injection. This is the only non-SES external dependency in the codebase and establishes the pattern for injecting external I/O dependencies through `createProgram()`'s `options` bag
 
 ### Things to Know
 

@@ -21,6 +21,7 @@ import { createSetupCommand } from "./commands/setup.js";
 import { createJobsCommand } from "./commands/jobs.js";
 import { createReputationCommand } from "./commands/reputation.js";
 import { createDomainCheckCommand } from "./commands/domain-check.js";
+import { createAuditCommand } from "./commands/audit.js";
 
 export function createProgram(
   ses: SesService,
@@ -48,7 +49,8 @@ export function createProgram(
         "'setup' to configure SES infrastructure for sending, " +
         "'reputation' to analyze bounce/complaint rates against AWS thresholds, " +
         "'jobs' to manage bulk import/export jobs via S3, " +
-        "and 'domain-check' to verify DNS configuration for email deliverability."
+        "'domain-check' to verify DNS configuration for email deliverability, " +
+        "and 'audit' for a comprehensive account readiness report."
     )
     .showSuggestionAfterError(true)
     .showHelpAfterError("(use --help for usage information)")
@@ -100,6 +102,7 @@ Environment variables:
   program.addCommand(createJobsCommand(ses, out, getConfig));
   program.addCommand(createReputationCommand(ses, out, getConfig));
   program.addCommand(createDomainCheckCommand(ses, out, getConfig, options?.dnsResolver));
+  program.addCommand(createAuditCommand(ses, out, getConfig, options?.dnsResolver));
 
   return program;
 }

@@ -95,6 +95,7 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | Setup/configuration audit | Done |
 | Reputation analysis | Done |
 | Domain DNS diagnostics | Done |
+| Comprehensive account audit | Done |
 
 ## Completed: Reputation Analysis
 
@@ -303,3 +304,25 @@ Added a `domain-check` command that performs comprehensive DNS and SES identity 
 - `src/program.ts` — Added optional `options` parameter to `createProgram`, registered domain-check command, updated description
 - `tests/helpers.ts` — Added `dnsResolver` option to `runCommand`
 - `tests/commands/domain-check.test.ts` — 11 new tests (252 total, all passing)
+
+## Completed: Comprehensive Account Audit
+
+Added an `audit` command that performs a comprehensive SES account readiness assessment, combining all diagnostic checks into a single unified report. Abstracts over the biggest SES usability gap: previously required running 4-5 separate commands to understand account readiness.
+
+- `audit` — runs all checks in parallel and produces a unified pass/fail/warn report across 6 categories:
+  - **Account**: sending enabled, enforcement status (HEALTHY/PROBATION/SHUTDOWN), sandbox/production mode
+  - **Identity**: from-address or domain verification status, DKIM signing status
+  - **DNS**: SPF record with amazonses.com, DMARC record and policy, DKIM CNAME records, MX records
+  - **Reputation**: bounce rate and complaint rate vs AWS enforcement thresholds (bounce: <2% OK, 2-5% WARN, >=5% CRITICAL; complaint: <0.05% OK, 0.05-0.1% WARN, >=0.1% CRITICAL)
+  - **Contacts**: contact list existence, subscribed count, suppression list overlap
+  - **Summary**: pass/warn/fail counts
+- Supports `--days <days>` (1-60, default 7) for metrics lookback and `--domain <domain>` to override DNS check domain
+- Falls back gracefully when VDM not enabled (shows "Metrics unavailable")
+- Exit code 1 if any check FAILs or is CRITICAL, 0 otherwise (WARNs are non-blocking)
+- No new SES service methods — purely composes existing methods (getAccountInfo, getIdentity, getContactList, listContacts, listSuppressedDestinations, getMetrics) plus DnsResolver
+- Uses same DnsResolver injection pattern as domain-check
+
+### Files changed
+- `src/commands/audit.ts` — New command file with comprehensive audit
+- `src/program.ts` — Registered the audit command, updated program description
+- `tests/commands/audit.test.ts` — 12 new tests (265 total, all passing)
