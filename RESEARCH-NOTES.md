@@ -809,3 +809,52 @@ example1@amazon.com,false,{"Name": "John"},OPT_IN
 - `listSuppressedDestinations()` — suppressed addresses
 - `getMetrics()` — VDM sending metrics (when available)
 - DnsResolver: `resolveTxt`, `resolveCname`, `resolveMx` — DNS records
+
+## Send-Safe Command Research
+
+### SES Management API Rate Limits
+- All non-send SES API actions are throttled at 1 request per second (GetAccount, GetEmailIdentity, ListContacts, ListSuppressedDestinations)
+- AWS SDK has built-in retry with exponential backoff for throttling errors
+- Running 4 parallel preflight calls will likely trigger throttling on 3 of them, but SDK retries will handle it
+- Send operations (SendEmail, SendBulkEmail) have their own per-account rate limit (maxSendRate)
+
+### Suppressed Address Behavior on SendEmail
+- SES **accepts** messages to suppressed addresses (returns MessageId), does NOT throw
+- Email is silently dropped — never delivered
+- Counts against daily sending quota
+- Generates a bounce notification with `bounceSubType: "OnAccountSuppressionList"`
+- Counts toward bounce rate metrics — can trigger PROBATION/SHUTDOWN
+- Account-level suppression lookups are case-sensitive; sending is case-insensitive — must normalize to lowercase for cross-referencing
+
+### Quota Race Conditions
+- Pre-send quota check via GetAccount is NOT atomic with sends
+- Quota can be OK at check time but exceeded mid-batch (other sends from the same account)
+- SES evaluates each individual request against quota at request time — no reservation mechanism
+- Treat quota checks as informational/advisory — handle ThrottlingException per-send as the real safety net
+
+### SendEmail Error Handling
+- **MessageRejected** (400): invalid content, sandbox restrictions. Non-retriable, skip recipient.
+- **AccountSendingPaused** (400): account suspended. Non-retriable — STOP sending immediately.
+- **ConfigurationSetSendingPaused** (400): config set disabled. Non-retriable.
+- **MailFromDomainNotVerified** (400): MX record issue. Non-retriable.
+- **Throttling**: rate or daily quota exceeded. Retriable with backoff (SDK handles automatically).
+- SES does NOT queue failed messages — if not retried, email is lost.
+- Recommended: classify errors as retriable (throttling) vs fatal (account paused) vs skip (message rejected)
+
+### ListManagementOptions Requirement
+- Only SendEmail supports ListManagementOptions (automatic unsubscribe link management)
+- SendBulkEmail does NOT support it — critical limitation for newsletter compliance
+- ListManagementOptions auto-adds List-Unsubscribe and List-Unsubscribe-Post headers
+- If contact has unsubscribed, SES rejects the send via bounce event (not synchronous API error)
+- Must filter unsubscribed contacts client-side before sending
+
+### Design Decisions for send-safe
+- Use `sendEmail` (not `sendBulkEmail`) to preserve ListManagementOptions
+- Run preflight checks before sending, using existing SesService methods
+- Filter suppressed contacts client-side: build a Set from ListSuppressedDestinations (lowercased), filter contacts
+- No new SesService methods needed — composes getAccountInfo, getIdentity, listContacts, listSuppressedDestinations, sendEmail, getMaxSendRate
+- For `--test` mode: skip preflight, send directly (test sends are to your own addresses)
+- For `--dry-run`: run all checks, show plan, don't send
+- Stop sending on AccountSendingPaused; log and continue on per-recipient MessageRejected
+- Use pThrottle at 80% of maxSendRate (same pattern as existing `send` command)
+- Takes an HTML file argument (same as `send`), extracts subject from `<title>` tag

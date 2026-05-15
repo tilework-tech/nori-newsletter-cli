@@ -96,6 +96,7 @@ All 5 Tier 1 features from APPLICATION-SPEC.md are now implemented.
 | Reputation analysis | Done |
 | Domain DNS diagnostics | Done |
 | Comprehensive account audit | Done |
+| Safe send (preflight + filter + send) | Done |
 
 ## Completed: Reputation Analysis
 
@@ -326,3 +327,21 @@ Added an `audit` command that performs a comprehensive SES account readiness ass
 - `src/commands/audit.ts` — New command file with comprehensive audit
 - `src/program.ts` — Registered the audit command, updated program description
 - `tests/commands/audit.test.ts` — 12 new tests (265 total, all passing)
+
+## Completed: Safe Send (Preflight + Filter + Send)
+
+Added a `send-safe` command that combines preflight validation, suppression list filtering, and email sending into a single atomic operation — the safest way to send a newsletter. Abstracts over SES's biggest rough edge for sending: the multi-step workflow of separately checking account status, verifying identity, cross-referencing the suppression list, and then sending.
+
+- `send-safe <html-file>` — reads HTML file, runs 4 parallel preflight checks (account status, identity verification, contact list, suppression list), filters suppressed contacts client-side using case-insensitive comparison, checks quota headroom against filtered count, then sends via `sendEmail` with `ListManagementOptions` (preserving automatic unsubscribe link management)
+- Preflight checks: `[FAIL]` if sending disabled or identity not verified/found (abort, exit 1); `[WARN]` if sandbox mode, enforcement not HEALTHY, or quota tight (continue)
+- Suppression filtering: builds a Set from `ListSuppressedDestinations` (lowercased), removes matching contacts from recipient list, reports filtered count as `[WARN]`
+- Supports `--test <emails>` for test recipients (skips all preflight checks) and `--dry-run` (runs checks, shows filtered recipient list, doesn't send)
+- Uses `sendEmail` (not `sendBulkEmail`) to preserve ListManagementOptions — this is critical for newsletter compliance as it auto-injects unsubscribe links
+- Rate-throttled at 80% of maxSendRate using pThrottle (same pattern as `send` command)
+- Reports partial failures: continues sending after per-recipient errors, reports failures at end, exit code 1 if any fail
+- No new SES service methods — composes existing getAccountInfo, getIdentity, listContacts, listSuppressedDestinations, sendEmail, getMaxSendRate
+
+### Files changed
+- `src/commands/send-safe.ts` — New command file with preflight + filter + send workflow
+- `src/program.ts` — Registered the send-safe command, updated program description
+- `tests/commands/send-safe.test.ts` — 13 new tests (278 total, all passing)

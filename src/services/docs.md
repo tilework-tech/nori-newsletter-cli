@@ -9,7 +9,7 @@ Path: @/src/services
 
 ### How it fits into the larger codebase
 
-- Commands in `@/src/commands/` receive a `SesService` instance via dependency injection and never call the AWS SDK directly. The abstraction commands (`health`, `preflight`, `cleanup`, `setup`, `reputation`, `domain-check`, `audit`) compose multiple `SesService` methods per invocation without introducing new AWS API calls
+- Commands in `@/src/commands/` receive a `SesService` instance via dependency injection and never call the AWS SDK directly. The abstraction commands (`health`, `preflight`, `cleanup`, `setup`, `reputation`, `domain-check`, `audit`, `send-safe`) compose multiple `SesService` methods per invocation without introducing new AWS API calls
 - `@/src/index.ts` constructs the concrete SES implementation via `createSesService(client)` and passes it to `createProgram()`
 - Tests substitute the mock implementation from `@/tests/helpers.ts` at this same interface boundary
 - The `SesService` interface is the primary seam for testability -- any new AWS SES operation must be added to both the interface and the mock
