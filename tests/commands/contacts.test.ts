@@ -146,6 +146,190 @@ not-valid,Bob,,`
     });
   });
 
+  describe("list --unsubscribed", () => {
+    it("lists contacts who have unsubscribed from the topic", async () => {
+      await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+      await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+      ses.setContactUnsubscribed("bob@example.com", TEST_CONFIG.topicName);
+
+      const { exitCode, stdout } = await runCommand(ses, [
+        "contacts",
+        "list",
+        "--unsubscribed",
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("bob@example.com");
+      expect(stdout).not.toContain("alice@example.com");
+    });
+
+    it("shows count of 0 when no contacts are unsubscribed", async () => {
+      await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+
+      const { exitCode, stdout } = await runCommand(ses, [
+        "contacts",
+        "list",
+        "--unsubscribed",
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("0");
+    });
+
+    it("does not affect regular list behavior", async () => {
+      await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+      await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+      ses.setContactUnsubscribed("bob@example.com", TEST_CONFIG.topicName);
+
+      const { stdout } = await runCommand(ses, ["contacts", "list"]);
+
+      expect(stdout).toContain("alice@example.com");
+      expect(stdout).not.toContain("bob@example.com");
+    });
+  });
+
+  describe("status", () => {
+    it("shows contact details for an existing contact", async () => {
+      await runCommand(ses, [
+        "contacts",
+        "add",
+        "alice@example.com",
+        "--name",
+        "Alice",
+        "--company",
+        "Acme",
+      ]);
+
+      const { exitCode, stdout } = await runCommand(ses, [
+        "contacts",
+        "status",
+        "alice@example.com",
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("alice@example.com");
+      expect(stdout).toContain("Alice");
+      expect(stdout).toContain("Acme");
+      expect(stdout).toContain("OPT_IN");
+    });
+
+    it("shows unsubscribed status for opted-out contact", async () => {
+      await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+      ses.setContactUnsubscribed("bob@example.com", TEST_CONFIG.topicName);
+
+      const { exitCode, stdout } = await runCommand(ses, [
+        "contacts",
+        "status",
+        "bob@example.com",
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("OPT_OUT");
+    });
+
+    it("reports error when contact not found", async () => {
+      const { exitCode, stderr } = await runCommand(ses, [
+        "contacts",
+        "status",
+        "nobody@example.com",
+      ]);
+
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain("not found");
+    });
+  });
+
+  describe("update", () => {
+    it("updates name and company for an existing contact", async () => {
+      await runCommand(ses, [
+        "contacts",
+        "add",
+        "alice@example.com",
+        "--name",
+        "Alice",
+      ]);
+
+      const { exitCode } = await runCommand(ses, [
+        "contacts",
+        "update",
+        "alice@example.com",
+        "--name",
+        "Alice Smith",
+        "--company",
+        "NewCorp",
+      ]);
+
+      expect(exitCode).toBe(0);
+
+      const { stdout } = await runCommand(ses, [
+        "contacts",
+        "status",
+        "alice@example.com",
+      ]);
+      expect(stdout).toContain("Alice Smith");
+      expect(stdout).toContain("NewCorp");
+    });
+
+    it("resubscribes an unsubscribed contact", async () => {
+      await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+      ses.setContactUnsubscribed("bob@example.com", TEST_CONFIG.topicName);
+
+      const { exitCode, stdout } = await runCommand(ses, [
+        "contacts",
+        "update",
+        "bob@example.com",
+        "--resubscribe",
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("resubscribed");
+
+      const { stdout: listOut } = await runCommand(ses, ["contacts", "list"]);
+      expect(listOut).toContain("bob@example.com");
+    });
+
+    it("reports error when contact not found", async () => {
+      const { exitCode, stderr } = await runCommand(ses, [
+        "contacts",
+        "update",
+        "nobody@example.com",
+        "--name",
+        "Ghost",
+      ]);
+
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain("not found");
+    });
+
+    it("updates only provided attributes without clearing others", async () => {
+      await runCommand(ses, [
+        "contacts",
+        "add",
+        "alice@example.com",
+        "--name",
+        "Alice",
+        "--company",
+        "Acme",
+      ]);
+
+      await runCommand(ses, [
+        "contacts",
+        "update",
+        "alice@example.com",
+        "--name",
+        "Alice Smith",
+      ]);
+
+      const { stdout } = await runCommand(ses, [
+        "contacts",
+        "status",
+        "alice@example.com",
+      ]);
+      expect(stdout).toContain("Alice Smith");
+      expect(stdout).toContain("Acme");
+    });
+  });
+
   describe("remove", () => {
     it("removes a contact", async () => {
       await runCommand(ses, ["contacts", "add", "alice@example.com"]);

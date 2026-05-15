@@ -15,7 +15,8 @@ export function createContactsCommand(
 
   cmd.description(
     "Manage newsletter subscribers in the SES contact list. " +
-      "Supports adding, importing, listing, and removing contacts. " +
+      "Supports adding, importing, listing, updating, and removing contacts. " +
+      "Use 'status' to view a contact's subscription details. " +
       "The contact list must be initialized first with the 'init' command."
   );
 
@@ -130,18 +131,125 @@ export function createContactsCommand(
   cmd
     .command("list")
     .description(
-      "List all subscribed contacts in the newsletter. " +
-        "Shows email addresses of all opted-in subscribers."
+      "List contacts in the newsletter. " +
+        "Shows opted-in subscribers by default. " +
+        "Use --unsubscribed to show contacts who have opted out."
     )
-    .action(async () => {
+    .option("--unsubscribed", "Show unsubscribed contacts instead of subscribed")
+    .action(async (options: { unsubscribed?: boolean }) => {
       const config = getConfig();
-      const contacts = await ses.listContacts(config.contactListName, config.topicName);
 
-      out.write(`${contacts.length} subscribers:\n`);
+      const contacts = options.unsubscribed
+        ? await ses.listUnsubscribedContacts(config.contactListName, config.topicName)
+        : await ses.listContacts(config.contactListName, config.topicName);
+      const label = options.unsubscribed ? "unsubscribed" : "subscribers";
+
+      out.write(`${contacts.length} ${label}:\n`);
       for (const contact of contacts) {
         out.write(`  ${contact.email}\n`);
       }
     });
+
+  cmd
+    .command("status")
+    .description(
+      "Show detailed status for a contact. " +
+        "Displays subscription status, topic preferences, and attributes."
+    )
+    .argument("<email>", "Email address to check")
+    .action(async (email: string) => {
+      const config = getConfig();
+      const contact = await ses.getContact(config.contactListName, email);
+
+      if (!contact) {
+        out.error(`Error: Contact '${email}' not found.\n`);
+        out.setExitCode(1);
+        return;
+      }
+
+      out.write(`Contact: ${contact.email}\n`);
+      out.write(`Unsubscribe all: ${contact.unsubscribeAll}\n`);
+
+      if (contact.topicPreferences.length > 0) {
+        out.write("Topics:\n");
+        for (const tp of contact.topicPreferences) {
+          out.write(`  ${tp.topicName}: ${tp.status}\n`);
+        }
+      }
+
+      if (contact.attributes && Object.keys(contact.attributes).length > 0) {
+        out.write("Attributes:\n");
+        for (const [key, value] of Object.entries(contact.attributes)) {
+          out.write(`  ${key}: ${value}\n`);
+        }
+      }
+    });
+
+  cmd
+    .command("update")
+    .description(
+      "Update a contact's attributes or subscription status. " +
+        "Use --resubscribe to opt a contact back in. " +
+        "Use --name and --company to update metadata."
+    )
+    .argument("<email>", "Email address to update")
+    .option("--name <name>", "Update subscriber name")
+    .option("--company <company>", "Update subscriber company")
+    .option("--resubscribe", "Resubscribe an opted-out contact")
+    .action(
+      async (
+        email: string,
+        options: { name?: string; company?: string; resubscribe?: boolean }
+      ) => {
+        const config = getConfig();
+
+        const contact = await ses.getContact(config.contactListName, email);
+        if (!contact) {
+          out.error(`Error: Contact '${email}' not found.\n`);
+          out.setExitCode(1);
+          return;
+        }
+
+        const updateOptions: {
+          topicPreferences?: Array<{ topicName: string; status: string }>;
+          unsubscribeAll?: boolean;
+          attributes?: Record<string, string>;
+        } = {};
+
+        if (options.resubscribe) {
+          updateOptions.topicPreferences = contact.topicPreferences.map((tp) =>
+            tp.topicName === config.topicName
+              ? { topicName: tp.topicName, status: "OPT_IN" }
+              : tp
+          );
+          updateOptions.unsubscribeAll = false;
+        }
+
+        const attrs: Record<string, string> = {};
+        if (options.name) attrs.name = options.name;
+        if (options.company) attrs.company = options.company;
+        if (Object.keys(attrs).length > 0) {
+          updateOptions.attributes = attrs;
+        }
+
+        try {
+          await ses.updateContact(config.contactListName, email, updateOptions);
+        } catch (err: unknown) {
+          if (err instanceof Error && err.name === "NotFoundException") {
+            out.error(`Error: Contact '${email}' not found.\n`);
+            out.setExitCode(1);
+            return;
+          }
+          throw err;
+        }
+
+        if (options.resubscribe) {
+          out.write(`Contact '${email}' has been resubscribed.\n`);
+        } else {
+          out.write(`Updated contact '${email}'.\n`);
+        }
+      }
+    );
 
   cmd
     .command("remove")
