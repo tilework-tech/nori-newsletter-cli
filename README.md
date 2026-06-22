@@ -71,6 +71,35 @@ nori-newsletter send newsletter.html --dry-run
 
 The subject line is extracted from the HTML `<title>` tag. If no title is found, the filename is used.
 
+As it sends, `send` prints per-recipient progress (`[k/total] sent <email>`) so an
+interrupted run shows exactly how far it got.
+
+### Resuming an interrupted send
+
+Full-list sends are resumable. Each successful delivery is recorded to a journal
+file (in the OS temp directory, keyed by the newsletter's path and content). If a
+send is interrupted — timeout, crash, Ctrl-C — just run the **same command again**:
+already-sent recipients are skipped and only the remainder go out, so no subscriber
+is emailed twice.
+
+```bash
+# First run is interrupted partway through...
+nori-newsletter send newsletter.html
+
+# ...re-run the identical command to send only the recipients that remain.
+nori-newsletter send newsletter.html
+
+# Force a full re-send, ignoring saved progress:
+nori-newsletter send newsletter.html --no-resume
+
+# Use an explicit journal location (e.g. to inspect or share progress):
+nori-newsletter send newsletter.html --state-file ./send.journal
+```
+
+Editing the newsletter (same filename, changed content) starts a fresh send rather
+than resuming the old one. `--test` sends are never journaled. The same options
+apply to `send-safe`.
+
 ### Unsubscribe handling
 
 When sending via `ListManagementOptions`, SES automatically:

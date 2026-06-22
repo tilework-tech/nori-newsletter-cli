@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createMockSesService, runCommand, TEST_CONFIG } from "../helpers.js";
-import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  writeFileSync,
+  readFileSync,
+  mkdtempSync,
+  rmSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -119,6 +124,100 @@ describe("send command", () => {
 
     expect(exitCode).not.toBe(0);
     expect(ses.getSentEmailCount()).toBe(0);
+  });
+
+  it("logs per-recipient progress", async () => {
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+    await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+    const { stdout } = await runCommand(ses, ["send", htmlPath]);
+
+    expect(stdout).toMatch(/\[1\/2\] sent /);
+    expect(stdout).toMatch(/\[2\/2\] sent /);
+  });
+
+  it("records successful sends to the journal file", async () => {
+    const stateFile = join(tempDir, "send.journal");
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+    await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+    await runCommand(ses, ["send", htmlPath, "--state-file", stateFile]);
+
+    const recorded = readFileSync(stateFile, "utf-8").trim().split("\n").sort();
+    expect(recorded).toEqual(["alice@example.com", "bob@example.com"]);
+  });
+
+  it("resumes by skipping recipients already in the journal", async () => {
+    const stateFile = join(tempDir, "send.journal");
+    writeFileSync(stateFile, "alice@example.com\n");
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+    await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+    const { exitCode, stdout } = await runCommand(ses, [
+      "send",
+      htmlPath,
+      "--state-file",
+      stateFile,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ses.getSentEmailCount()).toBe(1);
+    expect(ses.getSentEmails()[0].to).toBe("bob@example.com");
+    expect(stdout).toContain("Resuming previous send: 1 already sent");
+  });
+
+  it("sends nothing and reports completion when the journal is already full", async () => {
+    const stateFile = join(tempDir, "send.journal");
+    writeFileSync(stateFile, "alice@example.com\nbob@example.com\n");
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+    await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+    const { exitCode, stdout } = await runCommand(ses, [
+      "send",
+      htmlPath,
+      "--state-file",
+      stateFile,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ses.getSentEmailCount()).toBe(0);
+    expect(stdout).toMatch(/already sent/i);
+  });
+
+  it("--no-resume ignores the journal and sends to everyone", async () => {
+    const stateFile = join(tempDir, "send.journal");
+    writeFileSync(stateFile, "alice@example.com\n");
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+    await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+    const { exitCode } = await runCommand(ses, [
+      "send",
+      htmlPath,
+      "--state-file",
+      stateFile,
+      "--no-resume",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ses.getSentEmailCount()).toBe(2);
+  });
+
+  it("does not journal --test sends", async () => {
+    const { exitCode } = await runCommand(ses, [
+      "send",
+      htmlPath,
+      "--test",
+      "test1@example.com",
+      "--state-file",
+      join(tempDir, "should-not-exist.journal"),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ses.getSentEmailCount()).toBe(1);
+    // --test bypasses resume entirely, so no journal is written.
+    expect(() =>
+      readFileSync(join(tempDir, "should-not-exist.journal"), "utf-8")
+    ).toThrow();
   });
 
   it("continues sending after individual failures and reports them", async () => {
