@@ -1,16 +1,43 @@
 import { Command } from "commander";
+import { createHash } from "node:crypto";
 import pThrottle from "p-throttle";
 import type { SesService } from "../services/ses.js";
 import type { Output } from "../output.js";
 import type { NewsletterConfig } from "../config.js";
 import { isValidEmail } from "../lib/validation.js";
+import {
+  journalPathForKey,
+  openJournal,
+  type SendJournal,
+} from "../lib/send-journal.js";
+import {
+  announceDetachedSend,
+  defaultDetachLauncher,
+  type DetachLauncher,
+} from "../lib/detach.js";
 
 const BATCH_SIZE = 50;
+
+// A bulk send is identified by its template, audience (contact list + topic), and
+// default data, so a re-run of the same campaign resumes while a different
+// audience or template starts fresh.
+function bulkJournalKey(
+  templateName: string,
+  contactList: string,
+  topic: string,
+  data?: string
+): string {
+  return createHash("sha256")
+    .update(`bulk\n${templateName}\n${contactList}\n${topic}\n${data ?? ""}`)
+    .digest("hex")
+    .slice(0, 32);
+}
 
 export function createBulkSendCommand(
   ses: SesService,
   out: Output,
-  getConfig: () => NewsletterConfig
+  getConfig: () => NewsletterConfig,
+  launchDetached: DetachLauncher = defaultDetachLauncher
 ): Command {
   const cmd = new Command("bulk-send");
 
@@ -33,6 +60,15 @@ export function createBulkSendCommand(
       "Comma-separated test recipient emails (skips contact list)"
     )
     .option("--dry-run", "Show what would be sent without sending")
+    .option("--no-resume", "Ignore saved progress and send to every recipient")
+    .option(
+      "--state-file <path>",
+      "Path to the send-progress journal (default: durable state dir, keyed by template + data)"
+    )
+    .option(
+      "--detach",
+      "Run the bulk send in a detached background process and return immediately"
+    )
     .action(
       async (
         templateName: string,
@@ -40,6 +76,9 @@ export function createBulkSendCommand(
           data?: string;
           test?: string;
           dryRun?: boolean;
+          resume?: boolean;
+          stateFile?: string;
+          detach?: boolean;
         }
       ) => {
         const config = getConfig();
@@ -64,6 +103,18 @@ export function createBulkSendCommand(
               "Use 'templates list' to see available templates.\n"
           );
           out.setExitCode(1);
+          return;
+        }
+
+        // Detach before listing recipients or sending, so no bulk send is ever
+        // held in the foreground.
+        if (options.detach && !options.dryRun && !options.test) {
+          announceDetachedSend(
+            out,
+            launchDetached,
+            `bulk:${templateName}`,
+            "background bulk send"
+          );
           return;
         }
 
@@ -103,6 +154,41 @@ export function createBulkSendCommand(
           return;
         }
 
+        // Resume for full-list sends (not --test). Records each successful
+        // recipient so a re-run after an interruption skips what already went out.
+        let journal: SendJournal | null = null;
+        if (!options.test && options.resume !== false) {
+          const journalPath =
+            options.stateFile ??
+            journalPathForKey(
+              bulkJournalKey(
+                templateName,
+                config.contactListName,
+                config.topicName,
+                options.data
+              )
+            );
+          journal = openJournal(journalPath);
+          const total = recipients.length;
+          if (journal.alreadySent.size > 0) {
+            recipients = recipients.filter(
+              (email) => !journal!.alreadySent.has(email.toLowerCase())
+            );
+            const skipped = total - recipients.length;
+            if (skipped > 0) {
+              out.write(
+                `Resuming previous send: ${skipped} already sent, ${recipients.length} remaining.\n`
+              );
+            }
+          }
+          if (recipients.length === 0) {
+            out.write(
+              `All ${total} recipients already sent. Use --no-resume to send again. (journal: ${journalPath})\n`
+            );
+            return;
+          }
+        }
+
         const maxRate = await ses.getMaxSendRate();
         const effectiveRate = Math.max(1, Math.floor(maxRate * 0.8));
         const msPerBatch = Math.ceil((BATCH_SIZE / effectiveRate) * 1000);
@@ -124,50 +210,45 @@ export function createBulkSendCommand(
         const failures: Array<{ email: string; error: string }> = [];
 
         const throttledSendBatch = throttle(
-          async (entries: Array<{ to: string }>) => {
-            return ses.sendBulkEmail({
+          (entries: Array<{ to: string }>) =>
+            ses.sendBulkEmail({
               from: config.fromAddress,
               replyTo: config.replyTo,
               templateName,
               defaultTemplateData: options.data,
               entries,
-            });
-          }
+            })
         );
 
-        const batchResults = await Promise.allSettled(
-          batches.map((batch) => throttledSendBatch(batch))
+        // Record each batch's successes as soon as that batch settles (not after
+        // the whole run), so a kill/timeout mid-send keeps the progress already
+        // made and a re-run resumes instead of re-sending the entire list.
+        await Promise.all(
+          batches.map((batch) =>
+            throttledSendBatch(batch).then(
+              (results) => {
+                for (let i = 0; i < results.length; i++) {
+                  if (results[i].status === "SUCCESS") {
+                    totalSent++;
+                    journal?.record(batch[i].to);
+                  } else {
+                    failures.push({
+                      email: batch[i].to,
+                      error: results[i].error ?? results[i].status,
+                    });
+                  }
+                }
+              },
+              (reason: unknown) => {
+                const msg =
+                  reason instanceof Error ? reason.message : String(reason);
+                for (const entry of batch) {
+                  failures.push({ email: entry.to, error: msg });
+                }
+              }
+            )
+          )
         );
-
-        for (let batchIdx = 0; batchIdx < batchResults.length; batchIdx++) {
-          const batchResult = batchResults[batchIdx];
-          const batch = batches[batchIdx];
-
-          if (batchResult.status === "rejected") {
-            for (const entry of batch) {
-              failures.push({
-                email: entry.to,
-                error:
-                  batchResult.reason instanceof Error
-                    ? batchResult.reason.message
-                    : String(batchResult.reason),
-              });
-            }
-            continue;
-          }
-
-          const results = batchResult.value;
-          for (let i = 0; i < results.length; i++) {
-            if (results[i].status === "SUCCESS") {
-              totalSent++;
-            } else {
-              failures.push({
-                email: batch[i].to,
-                error: results[i].error ?? results[i].status,
-              });
-            }
-          }
-        }
 
         out.write(
           `Bulk sent template '${templateName}' to ${totalSent} recipients.\n`

@@ -67,6 +67,9 @@ nori-newsletter send newsletter.html --test recipient@example.com
 
 # Preview without sending
 nori-newsletter send newsletter.html --dry-run
+
+# Run in the background and return immediately (recommended for large lists)
+nori-newsletter send newsletter.html --detach
 ```
 
 The subject line is extracted from the HTML `<title>` tag. If no title is found, the filename is used.
@@ -74,13 +77,35 @@ The subject line is extracted from the HTML `<title>` tag. If no title is found,
 As it sends, `send` prints per-recipient progress (`[k/total] sent <email>`) so an
 interrupted run shows exactly how far it got.
 
+### Run large sends in the background
+
+A full-list send can take minutes. **Never run it in a foreground shell that may
+enforce a timeout** (many agent/CI shells kill a command after ~2 minutes, which
+interrupts the send). Use `--detach`: the CLI spawns the send as a detached
+background process, prints its pid and a log path, and returns immediately.
+
+```bash
+nori-newsletter send newsletter.html --detach
+# Started background send (pid 12345).
+# Logs: ~/.local/state/nori-newsletter/logs/<key>.log
+# Watch progress: tail -f ~/.local/state/nori-newsletter/logs/<key>.log
+```
+
+`send-safe` and `bulk-send` accept `--detach` as well. A detached run reports its
+pid and log path and then returns; check the log before launching again. Do **not**
+start the same campaign twice at once — the journal makes a *sequential* re-run
+safe, but two runs racing concurrently both read an empty journal and can double-send.
+
 ### Resuming an interrupted send
 
-Full-list sends are resumable. Each successful delivery is recorded to a journal
-file (in the OS temp directory, keyed by the newsletter's path and content). If a
-send is interrupted — timeout, crash, Ctrl-C — just run the **same command again**:
-already-sent recipients are skipped and only the remainder go out, so no subscriber
-is emailed twice.
+Full-list sends are resumable. Each successful delivery is appended to a journal
+file in a **durable** state directory — `$XDG_STATE_HOME/nori-newsletter/`,
+falling back to `~/.local/state/nori-newsletter/` — keyed by the newsletter's path
+and content. (It is deliberately **not** the OS temp directory, which is wiped on
+reboot and would let a restart re-send the whole list.) If a send is interrupted —
+timeout, crash, Ctrl-C — just run the **same command again**: already-sent
+recipients are skipped and only the remainder go out, so no subscriber is emailed
+twice.
 
 ```bash
 # First run is interrupted partway through...
@@ -92,13 +117,18 @@ nori-newsletter send newsletter.html
 # Force a full re-send, ignoring saved progress:
 nori-newsletter send newsletter.html --no-resume
 
-# Use an explicit journal location (e.g. to inspect or share progress):
+# Use an explicit journal location (e.g. to inspect, share, or place on
+# persistent storage so a resume survives a different machine):
 nori-newsletter send newsletter.html --state-file ./send.journal
 ```
 
 Editing the newsletter (same filename, changed content) starts a fresh send rather
-than resuming the old one. `--test` sends are never journaled. The same options
-apply to `send-safe`.
+than resuming the old one. `--test` sends are never journaled. The same resume
+options apply to `send-safe` and `bulk-send`.
+
+> **Ephemeral machines:** the durable state dir survives reboots but not a *different*
+> machine. If an interrupted send may be retried on a fresh VM, point `--state-file`
+> at shared/persistent storage so the resume can find prior progress.
 
 ### Unsubscribe handling
 
@@ -115,6 +145,23 @@ npm run dev -- init              # Run via tsx without building
 npm test                         # Run tests
 npm run test:watch               # Watch mode
 ```
+
+## Releasing
+
+Publishing is automated by `.github/workflows/publish.yml`, which publishes to npm
+when a **GitHub Release is published**. This is the only supported way to ship, so
+`npx nori-newsletter-cli@latest` can never lag behind `main`.
+
+1. One-time: add an `NPM_TOKEN` repository secret (an npm automation token with
+   publish rights for this package).
+2. Bump the version and tag it: `npm version minor` (or `patch`/`major`) — this
+   updates `package.json`, keeps `src/program.ts`'s `--version` in sync (update it
+   in the same commit), and creates a `vX.Y.Z` git tag.
+3. Push (`git push --follow-tags`) and create a GitHub Release for that tag.
+
+`npm publish` will not overwrite an existing version, so the version **must** be
+bumped before each release. `prepublishOnly` rebuilds `dist/` and runs the tests,
+so a broken build or failing test blocks the publish.
 
 ## License
 

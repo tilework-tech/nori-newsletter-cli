@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import {
   defaultJournalPath,
   openJournal,
@@ -35,6 +35,32 @@ describe("send-journal", () => {
       const a = defaultJournalPath("/news/a.html", "<html>same</html>");
       const b = defaultJournalPath("/news/b.html", "<html>same</html>");
       expect(a).not.toBe(b);
+    });
+  });
+
+  describe("defaultJournalPath durability", () => {
+    let original: string | undefined;
+
+    beforeEach(() => {
+      original = process.env.XDG_STATE_HOME;
+    });
+
+    afterEach(() => {
+      if (original === undefined) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = original;
+    });
+
+    it("does not place the journal in the ephemeral OS temp dir", () => {
+      delete process.env.XDG_STATE_HOME;
+      const path = defaultJournalPath("/news/issue.html", "<html>x</html>");
+      expect(path.startsWith(tmpdir())).toBe(false);
+      expect(path.startsWith(homedir())).toBe(true);
+    });
+
+    it("honors XDG_STATE_HOME for the journal location", () => {
+      process.env.XDG_STATE_HOME = join(tmpdir(), "xdg-state-under-test");
+      const path = defaultJournalPath("/news/issue.html", "<html>x</html>");
+      expect(path.startsWith(join(tmpdir(), "xdg-state-under-test"))).toBe(true);
     });
   });
 

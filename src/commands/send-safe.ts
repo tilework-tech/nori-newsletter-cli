@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import type { SesService } from "../services/ses.js";
 import type { Output } from "../output.js";
 import type { NewsletterConfig } from "../config.js";
@@ -13,11 +13,17 @@ import {
   openJournal,
   type SendJournal,
 } from "../lib/send-journal.js";
+import {
+  announceDetachedSend,
+  defaultDetachLauncher,
+  type DetachLauncher,
+} from "../lib/detach.js";
 
 export function createSendSafeCommand(
   ses: SesService,
   out: Output,
-  getConfig: () => NewsletterConfig
+  getConfig: () => NewsletterConfig,
+  launchDetached: DetachLauncher = defaultDetachLauncher
 ): Command {
   const cmd = new Command("send-safe");
 
@@ -45,7 +51,11 @@ export function createSendSafeCommand(
     )
     .option(
       "--state-file <path>",
-      "Path to the send-progress journal (default: OS temp dir, keyed by file + content)"
+      "Path to the send-progress journal (default: durable state dir, keyed by file + content)"
+    )
+    .option(
+      "--detach",
+      "Run the send in a detached background process and return immediately"
     )
     .action(
       async (
@@ -55,6 +65,7 @@ export function createSendSafeCommand(
           dryRun?: boolean;
           resume?: boolean;
           stateFile?: string;
+          detach?: boolean;
         }
       ) => {
         const config = getConfig();
@@ -67,6 +78,16 @@ export function createSendSafeCommand(
             `Error: Could not read file '${htmlFile}'.\n`
           );
           out.setExitCode(1);
+          return;
+        }
+
+        if (options.detach && !options.dryRun && !options.test) {
+          announceDetachedSend(
+            out,
+            launchDetached,
+            resolve(htmlFile),
+            "background send"
+          );
           return;
         }
 

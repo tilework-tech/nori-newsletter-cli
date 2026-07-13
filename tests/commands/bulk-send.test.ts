@@ -1,8 +1,18 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createMockSesService, runCommand } from "../helpers.js";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 describe("bulk-send command", () => {
   let ses: ReturnType<typeof createMockSesService>;
+  let tempDir: string;
+  let originalXdg: string | undefined;
 
   beforeEach(async () => {
     ses = createMockSesService();
@@ -11,6 +21,15 @@ describe("bulk-send command", () => {
       subject: "Hello {{name}}",
       html: "<p>Hi {{name}}, your code is {{code}}</p>",
     });
+    tempDir = mkdtempSync(join(tmpdir(), "nori-bulk-"));
+    originalXdg = process.env.XDG_STATE_HOME;
+    process.env.XDG_STATE_HOME = join(tempDir, "state");
+  });
+
+  afterEach(() => {
+    if (originalXdg === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = originalXdg;
+    rmSync(tempDir, { recursive: true, force: true });
   });
 
   it("sends bulk email to all contacts using a template", async () => {
@@ -206,5 +225,93 @@ describe("bulk-send command", () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain("Invalid");
     expect(ses.getSentBulkEmails().length).toBe(0);
+  });
+
+  it("resumes by skipping recipients already recorded in the journal", async () => {
+    const stateFile = join(tempDir, "bulk.journal");
+    writeFileSync(stateFile, "alice@example.com\n");
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+    await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+    const { exitCode } = await runCommand(ses, [
+      "bulk-send",
+      "my-template",
+      "--state-file",
+      stateFile,
+    ]);
+
+    expect(exitCode).toBe(0);
+    const recipients = ses
+      .getSentBulkEmails()
+      .flatMap((s) => s.entries.map((e) => e.to));
+    expect(recipients).toEqual(["bob@example.com"]);
+  });
+
+  it("records successful bulk recipients to the journal", async () => {
+    const stateFile = join(tempDir, "bulk.journal");
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+    await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+    await runCommand(ses, [
+      "bulk-send",
+      "my-template",
+      "--state-file",
+      stateFile,
+    ]);
+
+    const recorded = readFileSync(stateFile, "utf-8").trim().split("\n").sort();
+    expect(recorded).toEqual(["alice@example.com", "bob@example.com"]);
+  });
+
+  it("journals only successfully sent recipients so a resume retries the failures", async () => {
+    const stateFile = join(tempDir, "bulk.journal");
+    ses = createMockSesService({
+      sendBulkEmailBehavior: (entries) =>
+        entries.map((e) => ({
+          status: e.to === "bob@example.com" ? "FAILED" : "SUCCESS",
+          error: e.to === "bob@example.com" ? "bounced" : undefined,
+        })),
+    });
+    await runCommand(ses, ["init"]);
+    await ses.createTemplate("my-template", {
+      subject: "Hello",
+      html: "<p>Hi</p>",
+    });
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+    await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+    const { exitCode } = await runCommand(ses, [
+      "bulk-send",
+      "my-template",
+      "--state-file",
+      stateFile,
+    ]);
+
+    expect(exitCode).toBe(1);
+    const recorded = readFileSync(stateFile, "utf-8").trim().split("\n");
+    expect(recorded).toEqual(["alice@example.com"]);
+  });
+
+  it("with --detach, does not send in the foreground and reports the pid", async () => {
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+
+    let capturedLog = "";
+    const { exitCode, stdout } = await runCommand(
+      ses,
+      ["bulk-send", "my-template", "--detach"],
+      undefined,
+      {
+        launchDetached: (logPath: string) => {
+          capturedLog = logPath;
+          return 4242;
+        },
+      }
+    );
+
+    expect(exitCode).toBe(0);
+    expect(ses.getSentBulkEmailCount()).toBe(0);
+    expect(capturedLog.endsWith(".log")).toBe(true);
+    expect(stdout).toContain("4242");
+    expect(stdout).toContain(capturedLog);
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "nori-newsletter-cli",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "CLI for managing and sending newsletters via AWS SES",
   "type": "module",
   "bin": {
