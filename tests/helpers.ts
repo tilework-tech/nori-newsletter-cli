@@ -3,6 +3,7 @@ import type { SesService } from "../src/services/ses.js";
 import type { Output } from "../src/output.js";
 import type { NewsletterConfig } from "../src/config.js";
 import type { DnsResolver } from "../src/lib/dns.js";
+import type { DetachLauncher } from "../src/lib/detach.js";
 import { createProgram } from "../src/program.js";
 
 interface MockContact {
@@ -1085,7 +1086,7 @@ export async function runCommand(
   ses: SesService,
   args: string[],
   config?: NewsletterConfig,
-  options?: { dnsResolver?: DnsResolver }
+  options?: { dnsResolver?: DnsResolver; launchDetached?: DetachLauncher }
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const out = createTestOutput();
   const program = createProgram(ses, out, () => config ?? TEST_CONFIG, options);

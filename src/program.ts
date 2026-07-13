@@ -3,6 +3,7 @@ import type { SesService } from "./services/ses.js";
 import type { Output } from "./output.js";
 import type { NewsletterConfig } from "./config.js";
 import type { DnsResolver } from "./lib/dns.js";
+import type { DetachLauncher } from "./lib/detach.js";
 import { createInitCommand } from "./commands/init.js";
 import { createContactsCommand } from "./commands/contacts.js";
 import { createSendCommand } from "./commands/send.js";
@@ -28,13 +29,13 @@ export function createProgram(
   ses: SesService,
   out: Output,
   getConfig: () => NewsletterConfig,
-  options?: { dnsResolver?: DnsResolver }
+  options?: { dnsResolver?: DnsResolver; launchDetached?: DetachLauncher }
 ): Command {
   const program = new Command();
 
   program
     .name("nori-newsletter")
-    .version("1.0.0")
+    .version("1.1.0")
     .description(
       "CLI for managing and sending newsletters via AWS SES. " +
         "Use 'init' to set up a contact list, 'contacts' to manage subscribers, " +
@@ -88,12 +89,12 @@ Environment variables:
 
   program.addCommand(createInitCommand(ses, out, getConfig));
   program.addCommand(createContactsCommand(ses, out, getConfig));
-  program.addCommand(createSendCommand(ses, out, getConfig));
+  program.addCommand(createSendCommand(ses, out, getConfig, options?.launchDetached));
   program.addCommand(createSuppressionCommand(ses, out, getConfig));
   program.addCommand(createListsCommand(ses, out, getConfig));
   program.addCommand(createStatsCommand(ses, out, getConfig));
   program.addCommand(createTemplatesCommand(ses, out, getConfig));
-  program.addCommand(createBulkSendCommand(ses, out, getConfig));
+  program.addCommand(createBulkSendCommand(ses, out, getConfig, options?.launchDetached));
   program.addCommand(createIdentitiesCommand(ses, out, getConfig));
   program.addCommand(createConfigSetsCommand(ses, out, getConfig));
   program.addCommand(createValidateCommand(ses, out, getConfig));
@@ -105,7 +106,7 @@ Environment variables:
   program.addCommand(createReputationCommand(ses, out, getConfig));
   program.addCommand(createDomainCheckCommand(ses, out, getConfig, options?.dnsResolver));
   program.addCommand(createAuditCommand(ses, out, getConfig, options?.dnsResolver));
-  program.addCommand(createSendSafeCommand(ses, out, getConfig));
+  program.addCommand(createSendSafeCommand(ses, out, getConfig, options?.launchDetached));
 
   return program;
 }

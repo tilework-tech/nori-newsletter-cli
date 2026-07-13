@@ -1,0 +1,34 @@
+name: Publish to npm
+
+# Publishes the package to npm when a GitHub Release is published. This closes
+# the gap that caused stale code to stay on `npx nori-newsletter-cli@latest`:
+# a release (and only a release) ships the current source, and `prepublishOnly`
+# rebuilds `dist/` + runs the tests before anything is published.
+#
+# One-time setup required (see README "Releasing"): add an `NPM_TOKEN` repo
+# secret (an npm automation token with publish rights). Then cut a release whose
+# tag matches the bumped package.json version (e.g. v1.1.0).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # prepublishOnly runs `npm run build && npm test`, so this fails the
+      # publish if the build or tests are broken.
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

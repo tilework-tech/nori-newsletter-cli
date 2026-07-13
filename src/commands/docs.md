@@ -17,7 +17,9 @@ Path: @/src/commands
 
 ### Core Implementation
 
-- **Factory pattern:** Each file exports a `create*Command(ses, out, getConfig)` function returning a Commander `Command`. This keeps command logic pure (no global state) and enables test injection. The `domain-check` and `audit` commands are exceptions: their factories take an optional 4th `dnsResolver` parameter for DNS lookup injection (see `@/src/lib/dns.ts`)
+- **Factory pattern:** Each file exports a `create*Command(ses, out, getConfig)` function returning a Commander `Command`. This keeps command logic pure (no global state) and enables test injection. Two groups take an optional extra injectable parameter: `domain-check` and `audit` take a `dnsResolver` (see `@/src/lib/dns.ts`); `send`, `send-safe`, and `bulk-send` take a `launchDetached` (`DetachLauncher` from `@/src/lib/detach.ts`) for the `--detach` background-run mode. Both are wired through `createProgram()`'s `options` bag in `@/src/program.ts`
+
+- **Resumable sends (`send`, `send-safe`, `bulk-send`):** all three full-list send commands share the durable progress journal in `@/src/lib/send-journal.ts`. On start they open a journal, skip any address already recorded, and `record()` each successful delivery so a re-run after an interruption sends only the remainder — no subscriber is emailed twice. Shared options: `--no-resume` (ignore saved progress and send to everyone), `--state-file <path>` (override the journal location), and `--detach` (run in a detached background process and return immediately, checked before any recipient listing or sending). `--test` sends are never journaled. `send`/`send-safe` key the journal on the HTML file path + content hash (`defaultJournalPath`); `bulk-send` keys on `bulk\n<template>\n<data>` (`bulkJournalKey`) so a re-run of the same campaign resumes
 
 - **`contacts` command** has subcommands for the full subscriber lifecycle:
 
@@ -30,7 +32,7 @@ Path: @/src/commands
   | `update <email>` | Update attributes (`--name`, `--company`) and/or `--resubscribe` | `getContact` then `updateContact` |
   | `remove <email>` | Permanently delete a contact | `deleteContact` |
 
-- **`send` command** reads an HTML file, extracts the subject from the `<title>` tag, fetches opted-in subscribers, and sends individually via `SendEmail` with rate throttling via `p-throttle`. Supports `--test` (send to specific emails) and `--dry-run` (preview only). Uses `Promise.allSettled` so individual failures do not abort the batch. Uses `ListManagementOptions` to enable SES-managed unsubscribe links
+- **`send` command** reads an HTML file, extracts the subject from the `<title>` tag, fetches opted-in subscribers, and sends individually via `SendEmail` with rate throttling via `p-throttle`. Supports `--test` (send to specific emails) and `--dry-run` (preview only). Uses `Promise.allSettled` so individual failures do not abort the batch. Uses `ListManagementOptions` to enable SES-managed unsubscribe links. Full-list sends are resumable via the shared journal (see the Resumable sends note above); before a fresh full-list send with no prior progress it prints a "No saved progress found" notice naming the journal path. Also supports `--detach`
 
 - **`bulk-send` command** sends a pre-existing SES template to multiple recipients using the `SendBulkEmail` API, which batches up to 50 recipients per API call (constant `BATCH_SIZE`). Requires a template created via the `templates` command. Supports `--data` (default template data as JSON), `--test` (send to specific emails, bypassing the contact list), and `--dry-run` (preview only). Key differences from `send`:
   - Uses `sendBulkEmail` instead of per-recipient `sendEmail` calls, reducing API overhead for large lists
@@ -38,6 +40,7 @@ Path: @/src/commands
   - Throttling is per-batch rather than per-recipient: `batchesPerSecond = floor(effectiveRate / 50)`
   - Returns per-recipient success/failure results from the SES API response. Partial failures are reported individually and set exit code 1
   - The command is a separate top-level command (not a subcommand of `send`) to preserve backward compatibility with `send <html-file>`
+  - Full-list sends are now resumable via the same shared journal as `send`/`send-safe` (`--no-resume`, `--state-file`, `--detach`). Records each successful recipient (from the per-batch results) and skips already-sent addresses on a re-run, keyed on template + `--data` via `bulkJournalKey`. This closed a gap where `bulk-send` previously had no journaling and re-sent the entire list on every run
 
 - **`init` command** creates the SES contact list and topic. Idempotent -- reports success if the list already exists
 
@@ -205,7 +208,7 @@ Path: @/src/commands
   | Suppression | No overlap | Contacts filtered from suppression list | -- |
   | Quota | Headroom sufficient | Recipients exceed remaining quota | -- |
 
-  Sets exit code 1 if any check is FAIL. Unlike `preflight`, which only warns about suppression overlap, `send-safe` actually removes suppressed contacts from the recipient list before sending. Unlike `send`, which does no preflight checks at all, `send-safe` validates account and identity status first. Uses `extractSubject()` from `@/src/lib/html.ts`, `extractEmail()` from `@/src/lib/email.ts`, and `isValidEmail()` from `@/src/lib/validation.ts`. Sends via `sendEmail` (not `sendBulkEmail`) to preserve `ListManagementOptions` for automatic unsubscribe link management. Depends on `newsletter.config.json`
+  Sets exit code 1 if any check is FAIL. Unlike `preflight`, which only warns about suppression overlap, `send-safe` actually removes suppressed contacts from the recipient list before sending. Unlike `send`, which does no preflight checks at all, `send-safe` validates account and identity status first. Uses `extractSubject()` from `@/src/lib/html.ts`, `extractEmail()` from `@/src/lib/email.ts`, and `isValidEmail()` from `@/src/lib/validation.ts`. Sends via `sendEmail` (not `sendBulkEmail`) to preserve `ListManagementOptions` for automatic unsubscribe link management. Full-list sends share the same resumable journal and `--no-resume` / `--state-file` / `--detach` options as `send` (see the Resumable sends note above). Depends on `newsletter.config.json`
 
 ### Things to Know
 

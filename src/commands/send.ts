@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import type { SesService } from "../services/ses.js";
 import type { Output } from "../output.js";
 import type { NewsletterConfig } from "../config.js";
@@ -12,11 +12,17 @@ import {
   openJournal,
   type SendJournal,
 } from "../lib/send-journal.js";
+import {
+  announceDetachedSend,
+  defaultDetachLauncher,
+  type DetachLauncher,
+} from "../lib/detach.js";
 
 export function createSendCommand(
   ses: SesService,
   out: Output,
-  getConfig: () => NewsletterConfig
+  getConfig: () => NewsletterConfig,
+  launchDetached: DetachLauncher = defaultDetachLauncher
 ): Command {
   const cmd = new Command("send");
 
@@ -40,7 +46,11 @@ export function createSendCommand(
     )
     .option(
       "--state-file <path>",
-      "Path to the send-progress journal (default: OS temp dir, keyed by file + content)"
+      "Path to the send-progress journal (default: durable state dir, keyed by file + content)"
+    )
+    .option(
+      "--detach",
+      "Run the send in a detached background process and return immediately"
     )
     .action(
       async (
@@ -50,6 +60,7 @@ export function createSendCommand(
           dryRun?: boolean;
           resume?: boolean;
           stateFile?: string;
+          detach?: boolean;
         }
       ) => {
         const config = getConfig();
@@ -63,6 +74,19 @@ export function createSendCommand(
               "See src/commands/send.ts for details.\n"
           );
           out.setExitCode(1);
+          return;
+        }
+
+        // Detach before doing any real work: never hold a long-running send in
+        // the foreground (a foreground process can be killed by a caller's
+        // timeout, and the resume journal is what makes a restart safe).
+        if (options.detach && !options.dryRun && !options.test) {
+          announceDetachedSend(
+            out,
+            launchDetached,
+            resolve(htmlFile),
+            "background send"
+          );
           return;
         }
 
@@ -131,6 +155,11 @@ export function createSendCommand(
               `All ${total} recipients already sent. Use --no-resume to send again. (journal: ${journalPath})\n`
             );
             return;
+          }
+          if (journal.alreadySent.size === 0) {
+            out.write(
+              `No saved progress found. Sending to ${recipients.length} recipients (journal: ${journalPath}).\n`
+            );
           }
         }
 

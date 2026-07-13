@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 
 export interface SendJournal {
   path: string;
@@ -10,6 +10,20 @@ export interface SendJournal {
   // Durably record that `email` was sent. Appends immediately so a hard kill
   // (SIGTERM/SIGKILL) loses at most the in-flight sends, never the recorded ones.
   record(email: string): void;
+}
+
+// Durable, per-user state directory for send progress. Unlike os.tmpdir(), this
+// survives reboots so an interrupted send can resume instead of re-blasting the
+// whole list. Honors XDG_STATE_HOME, falling back to ~/.local/state.
+export function stateDir(): string {
+  const xdg = process.env.XDG_STATE_HOME;
+  const base =
+    xdg && xdg.trim().length > 0 ? xdg : join(homedir(), ".local", "state");
+  return join(base, "nori-newsletter");
+}
+
+export function journalPathForKey(key: string): string {
+  return join(stateDir(), `${key}.journal`);
 }
 
 // A send is identified by the resolved HTML path AND its content hash. Re-running
@@ -22,7 +36,7 @@ export function defaultJournalPath(htmlFile: string, html: string): string {
     .update(`${absPath}\n${contentHash}`)
     .digest("hex")
     .slice(0, 32);
-  return join(tmpdir(), "nori-newsletter-state", `${key}.journal`);
+  return journalPathForKey(key);
 }
 
 export function openJournal(path: string): SendJournal {
@@ -51,6 +65,9 @@ export function openJournal(path: string): SendJournal {
         mkdirSync(dirname(path), { recursive: true });
         dirEnsured = true;
       }
+      // Append synchronously: a hard kill (timeout / SIGKILL) then loses at most
+      // the in-flight sends, never a recorded one, so a re-run resumes instead of
+      // re-sending the whole list.
       appendFileSync(path, `${email}\n`);
       alreadySent.add(normalized);
     },
