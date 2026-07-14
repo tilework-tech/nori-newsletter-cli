@@ -148,20 +148,29 @@ npm run test:watch               # Watch mode
 
 ## Releasing
 
-Publishing is automated by `.github/workflows/publish.yml`, which publishes to npm
-when a **GitHub Release is published**. This is the only supported way to ship, so
-`npx nori-newsletter-cli@latest` can never lag behind `main`.
+Publishing is automated by `.github/workflows/newsletter-cli-release.yml` and uses
+**npm OIDC Trusted Publishing — no `NPM_TOKEN` secret**, matching the sibling
+`nori-slack-cli` / `nori-skillsets` deploys. A `newsletter-cli-v<version>` **git tag
+is the source of truth** for the version; `package.json` ships a `0.0.0` placeholder
+that the workflow stamps from the tag before it builds, so `--version` (read from
+`package.json` at runtime) always matches the installed build.
 
-1. One-time: add an `NPM_TOKEN` repository secret (an npm automation token with
-   publish rights for this package).
-2. Bump the version and tag it: `npm version minor` (or `patch`/`major`) — this
-   updates `package.json`, keeps `src/program.ts`'s `--version` in sync (update it
-   in the same commit), and creates a `vX.Y.Z` git tag.
-3. Push (`git push --follow-tags`) and create a GitHub Release for that tag.
+Cut a release from a clean `main`:
 
-`npm publish` will not overwrite an existing version, so the version **must** be
-bumped before each release. `prepublishOnly` rebuilds `dist/` and runs the tests,
-so a broken build or failing test blocks the publish.
+```bash
+npm run release -- 1.1.0
+```
+
+This validates the version, creates and pushes the `newsletter-cli-v1.1.0` tag, and
+the workflow builds, tests, publishes to npm (`@latest`), and creates a GitHub
+Release. `npx nori-newsletter-cli@latest` therefore can never lag behind a release.
+
+**One-time setup** (repo/npm admin — cannot be scripted):
+
+- Create a GitHub **Environment** named `npm-publish` in this repo.
+- Register a **Trusted Publisher** for `nori-newsletter-cli` on npmjs.com:
+  org `tilework-tech`, repo `nori-newsletter-cli`, workflow
+  `newsletter-cli-release.yml`, environment `npm-publish`.
 
 ## License
 

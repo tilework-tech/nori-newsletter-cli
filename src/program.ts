@@ -1,4 +1,7 @@
 import { Command } from "commander";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import type { SesService } from "./services/ses.js";
 import type { Output } from "./output.js";
 import type { NewsletterConfig } from "./config.js";
@@ -25,6 +28,16 @@ import { createDomainCheckCommand } from "./commands/domain-check.js";
 import { createAuditCommand } from "./commands/audit.js";
 import { createSendSafeCommand } from "./commands/send-safe.js";
 
+// The published version is stamped into package.json from the git tag at release
+// time (package.json ships a 0.0.0 placeholder). Read it at runtime so --version
+// always reflects the actually-installed build rather than a duplicated literal.
+const VERSION = JSON.parse(
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"),
+    "utf-8"
+  )
+).version as string;
+
 export function createProgram(
   ses: SesService,
   out: Output,
@@ -35,7 +48,7 @@ export function createProgram(
 
   program
     .name("nori-newsletter")
-    .version("1.1.0")
+    .version(VERSION)
     .description(
       "CLI for managing and sending newsletters via AWS SES. " +
         "Use 'init' to set up a contact list, 'contacts' to manage subscribers, " +
