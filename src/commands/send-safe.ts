@@ -9,6 +9,12 @@ import { extractEmail } from "../lib/email.js";
 import { isValidEmail } from "../lib/validation.js";
 import { runSend } from "../lib/send-runner.js";
 import {
+  buildTracking,
+  campaignIdFromFile,
+  NO_CONFIG_SET_WARNING,
+  type SendTracking,
+} from "../lib/campaign.js";
+import {
   defaultJournalPath,
   openJournal,
   type SendJournal,
@@ -92,6 +98,8 @@ export function createSendSafeCommand(
         }
 
         const subject = extractSubject(html) ?? basename(htmlFile, ".html");
+        const campaignId = campaignIdFromFile(htmlFile);
+        const tracking = buildTracking(config.configurationSetName, campaignId);
 
         if (options.test) {
           const recipients = options.test.split(",").map((e) => e.trim());
@@ -104,7 +112,16 @@ export function createSendSafeCommand(
             return;
           }
 
-          await sendEmails(ses, out, config, recipients, subject, html, null);
+          await sendEmails(
+            ses,
+            out,
+            config,
+            recipients,
+            subject,
+            html,
+            null,
+            tracking
+          );
           return;
         }
 
@@ -204,6 +221,7 @@ export function createSendSafeCommand(
           out.write(
             `[dry run] Would send '${subject}' to ${recipients.length} recipients:\n`
           );
+          out.write(`[dry run] Campaign: ${campaignId}\n`);
           for (const email of recipients) {
             out.write(`  ${email}\n`);
           }
@@ -244,7 +262,16 @@ export function createSendSafeCommand(
           }
         }
 
-        await sendEmails(ses, out, config, recipients, subject, html, journal);
+        await sendEmails(
+          ses,
+          out,
+          config,
+          recipients,
+          subject,
+          html,
+          journal,
+          tracking
+        );
 
         if (filteredCount > 0) {
           out.write(`Filtered ${filteredCount} suppressed contacts.\n`);
@@ -262,8 +289,14 @@ async function sendEmails(
   recipients: string[],
   subject: string,
   html: string,
-  journal: SendJournal | null
+  journal: SendJournal | null,
+  tracking?: SendTracking
 ): Promise<void> {
+  // Once per run, not per recipient.
+  if (!tracking) {
+    out.error(NO_CONFIG_SET_WARNING);
+  }
+
   const { sent, failed } = await runSend(
     ses,
     out,
@@ -271,7 +304,8 @@ async function sendEmails(
     recipients,
     subject,
     html,
-    journal
+    journal,
+    tracking
   );
 
   out.write(`Sent '${subject}' to ${sent} recipients.\n`);

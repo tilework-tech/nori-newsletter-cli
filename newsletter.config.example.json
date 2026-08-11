@@ -2,5 +2,6 @@
   "contactListName": "my-newsletter",
   "topicName": "weekly-updates",
   "fromAddress": "My Newsletter <newsletter@example.com>",
-  "replyTo": "reply@example.com"
+  "replyTo": "reply@example.com",
+  "configurationSetName": "newsletter-tracking"
 }

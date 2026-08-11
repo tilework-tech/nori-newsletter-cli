@@ -86,6 +86,9 @@ export interface SesService {
 
   deleteContact(listName: string, email: string): Promise<void>;
 
+  // `tracking` is optional: omitting it sends exactly as before. A
+  // configuration set is what makes SES emit open/click events; the tags are
+  // what let those events be attributed back to a specific issue.
   sendEmail(
     from: string,
     to: string,
@@ -93,7 +96,11 @@ export interface SesService {
     html: string,
     replyTo: string,
     listName: string,
-    topicName: string
+    topicName: string,
+    tracking?: {
+      configurationSetName?: string;
+      emailTags?: Array<{ name: string; value: string }>;
+    }
   ): Promise<string>;
 
   getMaxSendRate(): Promise<number>;
@@ -210,6 +217,8 @@ export interface SesService {
       to: string;
       replacementData?: string;
     }>;
+    configurationSetName?: string;
+    emailTags?: Array<{ name: string; value: string }>;
   }): Promise<Array<{ status: string; messageId?: string; error?: string }>>;
 
   listIdentities(): Promise<
@@ -632,7 +641,11 @@ export function createSesService(client: SESv2Client): SesService {
       html: string,
       replyTo: string,
       listName: string,
-      topicName: string
+      topicName: string,
+      tracking?: {
+        configurationSetName?: string;
+        emailTags?: Array<{ name: string; value: string }>;
+      }
     ): Promise<string> {
       const response = await client.send(
         new SendEmailCommand({
@@ -653,6 +666,16 @@ export function createSesService(client: SESv2Client): SesService {
             ContactListName: listName,
             TopicName: topicName,
           },
+          ...(tracking?.configurationSetName && {
+            ConfigurationSetName: tracking.configurationSetName,
+          }),
+          ...(tracking?.emailTags &&
+            tracking.emailTags.length > 0 && {
+              EmailTags: tracking.emailTags.map((t) => ({
+                Name: t.name,
+                Value: t.value,
+              })),
+            }),
         })
       );
 
@@ -991,6 +1014,8 @@ export function createSesService(client: SESv2Client): SesService {
         to: string;
         replacementData?: string;
       }>;
+      configurationSetName?: string;
+      emailTags?: Array<{ name: string; value: string }>;
     }): Promise<Array<{ status: string; messageId?: string; error?: string }>> {
       const response = await client.send(
         new SendBulkEmailCommand({
@@ -1014,6 +1039,18 @@ export function createSesService(client: SESv2Client): SesService {
               },
             }),
           })),
+          ...(bulkOptions.configurationSetName && {
+            ConfigurationSetName: bulkOptions.configurationSetName,
+          }),
+          // SendBulkEmail names the batch-level tags DefaultEmailTags (the
+          // per-message equivalent of SendEmail's EmailTags).
+          ...(bulkOptions.emailTags &&
+            bulkOptions.emailTags.length > 0 && {
+              DefaultEmailTags: bulkOptions.emailTags.map((t) => ({
+                Name: t.name,
+                Value: t.value,
+              })),
+            }),
         })
       );
 

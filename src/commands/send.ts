@@ -8,6 +8,11 @@ import { extractSubject } from "../lib/html.js";
 import { isValidEmail } from "../lib/validation.js";
 import { runSend } from "../lib/send-runner.js";
 import {
+  buildTracking,
+  campaignIdFromFile,
+  NO_CONFIG_SET_WARNING,
+} from "../lib/campaign.js";
+import {
   defaultJournalPath,
   openJournal,
   type SendJournal,
@@ -92,6 +97,8 @@ export function createSendCommand(
 
         const subject =
           extractSubject(html) ?? basename(htmlFile, ".html");
+        const campaignId = campaignIdFromFile(htmlFile);
+        const tracking = buildTracking(config.configurationSetName, campaignId);
 
         let recipients: string[];
         if (options.test) {
@@ -117,6 +124,7 @@ export function createSendCommand(
           out.write(
             `[dry run] Would send '${subject}' to ${recipients.length} recipients:\n`
           );
+          out.write(`[dry run] Campaign: ${campaignId}\n`);
           for (const email of recipients) {
             out.write(`  ${email}\n`);
           }
@@ -163,6 +171,12 @@ export function createSendCommand(
           }
         }
 
+        // Once per run, not per recipient: without a configuration set this
+        // send is invisible to open/click reporting, but that is not fatal.
+        if (!tracking) {
+          out.error(NO_CONFIG_SET_WARNING);
+        }
+
         const { sent, failed } = await runSend(
           ses,
           out,
@@ -170,7 +184,8 @@ export function createSendCommand(
           recipients,
           subject,
           html,
-          journal
+          journal,
+          tracking
         );
 
         out.write(`Sent '${subject}' to ${sent} recipients.\n`);

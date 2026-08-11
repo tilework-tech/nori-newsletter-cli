@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createMockSesService, runCommand } from "../helpers.js";
+import { createMockSesService, runCommand, TEST_CONFIG } from "../helpers.js";
 import {
   mkdtempSync,
   rmSync,
@@ -313,5 +313,86 @@ describe("bulk-send command", () => {
     expect(capturedLog.endsWith(".log")).toBe(true);
     expect(stdout).toContain("4242");
     expect(stdout).toContain(capturedLog);
+  });
+  describe("SES tracking", () => {
+    const trackedConfig = {
+      ...TEST_CONFIG,
+      configurationSetName: "newsletter-tracking",
+    };
+
+    it("attaches the configuration set and campaign/source tags when configured", async () => {
+      await runCommand(
+        ses,
+        ["contacts", "add", "alice@example.com"],
+        trackedConfig
+      );
+
+      const { exitCode, stderr } = await runCommand(
+        ses,
+        ["bulk-send", "my-template"],
+        trackedConfig
+      );
+
+      expect(exitCode).toBe(0);
+      const bulk = ses.getSentBulkEmails()[0];
+      expect(bulk.configurationSetName).toBe("newsletter-tracking");
+      expect(bulk.emailTags).toEqual([
+        { name: "campaign", value: "my-template" },
+        { name: "source", value: "newsletter" },
+      ]);
+      expect(stderr).not.toContain("configurationSetName");
+    });
+
+    it("attaches neither config set nor tags, and warns once, when not configured", async () => {
+      await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+      await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+      const { exitCode, stderr } = await runCommand(ses, [
+        "bulk-send",
+        "my-template",
+      ]);
+
+      expect(exitCode).toBe(0);
+      const bulk = ses.getSentBulkEmails()[0];
+      expect(bulk.configurationSetName).toBeUndefined();
+      expect(bulk.emailTags).toBeUndefined();
+      expect(stderr).toContain(
+        "Warning: no configurationSetName in newsletter.config.json"
+      );
+      expect(stderr.match(/no configurationSetName/g)?.length).toBe(1);
+    });
+
+    it("sanitizes the template name into the campaign tag", async () => {
+      await ses.createTemplate("Summer 2026: promo!", { subject: "Hi" });
+      await runCommand(
+        ses,
+        ["contacts", "add", "alice@example.com"],
+        trackedConfig
+      );
+
+      await runCommand(
+        ses,
+        ["bulk-send", "Summer 2026: promo!"],
+        trackedConfig
+      );
+
+      expect(ses.getSentBulkEmails()[0].emailTags?.[0]).toEqual({
+        name: "campaign",
+        value: "Summer-2026-promo",
+      });
+    });
+
+    it("shows the campaign id in dry-run output", async () => {
+      await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+
+      const { stdout } = await runCommand(ses, [
+        "bulk-send",
+        "my-template",
+        "--dry-run",
+      ]);
+
+      expect(stdout).toContain("Campaign: my-template");
+      expect(ses.getSentBulkEmailCount()).toBe(0);
+    });
   });
 });

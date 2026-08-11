@@ -52,4 +52,39 @@ describe("loadConfig", () => {
 
     expect(() => loadConfig(tempDir)).toThrow();
   });
+  it("loads the optional configurationSetName when present", () => {
+    writeFileSync(
+      join(tempDir, "newsletter.config.json"),
+      JSON.stringify({
+        contactListName: "my-list",
+        topicName: "my-topic",
+        fromAddress: "News <news@example.com>",
+        replyTo: "reply@example.com",
+        configurationSetName: "newsletter-tracking",
+      })
+    );
+
+    expect(loadConfig(tempDir).configurationSetName).toBe("newsletter-tracking");
+  });
+
+  it("leaves configurationSetName undefined when absent or empty", () => {
+    const base = {
+      contactListName: "my-list",
+      topicName: "my-topic",
+      fromAddress: "News <news@example.com>",
+      replyTo: "reply@example.com",
+    };
+
+    writeFileSync(
+      join(tempDir, "newsletter.config.json"),
+      JSON.stringify(base)
+    );
+    expect(loadConfig(tempDir).configurationSetName).toBeUndefined();
+
+    writeFileSync(
+      join(tempDir, "newsletter.config.json"),
+      JSON.stringify({ ...base, configurationSetName: "" })
+    );
+    expect(loadConfig(tempDir).configurationSetName).toBeUndefined();
+  });
 });
