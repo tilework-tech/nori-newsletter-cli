@@ -20,7 +20,11 @@ export async function runSend(
   recipients: string[],
   subject: string,
   html: string,
-  journal: SendJournal | null
+  journal: SendJournal | null,
+  tracking?: {
+    configurationSetName?: string;
+    emailTags?: Array<{ name: string; value: string }>;
+  }
 ): Promise<SendResult> {
   const maxRate = await ses.getMaxSendRate();
   const effectiveRate = Math.max(1, Math.floor(maxRate * 0.8));
@@ -39,7 +43,8 @@ export async function runSend(
       html,
       config.replyTo,
       config.contactListName,
-      config.topicName
+      config.topicName,
+      tracking
     )
   );
 

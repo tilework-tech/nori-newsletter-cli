@@ -86,12 +86,20 @@ Configuration:
     fromAddress       Verified SES sender (e.g. "Name <email>")
     replyTo           Reply-to email address
 
+  Optional fields:
+    configurationSetName  SES configuration set to attach to every send.
+                          Enables open/click tracking and event publishing;
+                          each send is tagged campaign=<html filename> and
+                          source=newsletter so events map to an issue.
+                          Without it, SES emits no open/click events.
+
   Example newsletter.config.json:
     {
       "contactListName": "my-newsletter",
       "topicName": "weekly-updates",
       "fromAddress": "My Newsletter <news@example.com>",
-      "replyTo": "reply@example.com"
+      "replyTo": "reply@example.com",
+      "configurationSetName": "newsletter-tracking"
     }
 
 Environment variables:

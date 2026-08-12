@@ -6,6 +6,11 @@ import type { Output } from "../output.js";
 import type { NewsletterConfig } from "../config.js";
 import { isValidEmail } from "../lib/validation.js";
 import {
+  buildTracking,
+  NO_CONFIG_SET_WARNING,
+  sanitizeTagValue,
+} from "../lib/campaign.js";
+import {
   journalPathForKey,
   openJournal,
   type SendJournal,
@@ -118,6 +123,11 @@ export function createBulkSendCommand(
           return;
         }
 
+        // A bulk send has no HTML file to name the issue, so the template name
+        // is the per-campaign identifier available here.
+        const campaignId = sanitizeTagValue(templateName);
+        const tracking = buildTracking(config.configurationSetName, campaignId);
+
         let recipients: string[];
         if (options.test) {
           recipients = options.test.split(",").map((e) => e.trim());
@@ -141,6 +151,7 @@ export function createBulkSendCommand(
           out.write(
             `[dry run] Would bulk send template '${templateName}' to ${recipients.length} recipients:\n`
           );
+          out.write(`[dry run] Campaign: ${campaignId}\n`);
           for (const email of recipients) {
             out.write(`  ${email}\n`);
           }
@@ -209,6 +220,11 @@ export function createBulkSendCommand(
         let totalSent = 0;
         const failures: Array<{ email: string; error: string }> = [];
 
+        // Once per run, not per batch.
+        if (!tracking) {
+          out.error(NO_CONFIG_SET_WARNING);
+        }
+
         const throttledSendBatch = throttle(
           (entries: Array<{ to: string }>) =>
             ses.sendBulkEmail({
@@ -217,6 +233,10 @@ export function createBulkSendCommand(
               templateName,
               defaultTemplateData: options.data,
               entries,
+              ...(tracking && {
+                configurationSetName: tracking.configurationSetName,
+                emailTags: tracking.emailTags,
+              }),
             })
         );
 

@@ -6,6 +6,10 @@ export interface NewsletterConfig {
   topicName: string;
   fromAddress: string;
   replyTo: string;
+  // Optional. When set, sends attach this SES configuration set, which is what
+  // enables open/click tracking and event publishing. Not required: configs
+  // written before tracking existed must keep working.
+  configurationSetName?: string;
 }
 
 const CONFIG_FILENAME = "newsletter.config.json";
@@ -52,5 +56,9 @@ export function loadConfig(dir?: string): NewsletterConfig {
     topicName: config.topicName as string,
     fromAddress: config.fromAddress as string,
     replyTo: config.replyTo as string,
+    ...(typeof config.configurationSetName === "string" &&
+      config.configurationSetName !== "" && {
+        configurationSetName: config.configurationSetName,
+      }),
   };
 }

@@ -21,6 +21,8 @@ interface SentEmail {
   replyTo: string;
   listName: string;
   topicName: string;
+  configurationSetName?: string;
+  emailTags?: Array<{ name: string; value: string }>;
 }
 
 export interface MockSesServiceOptions {
@@ -69,6 +71,8 @@ interface SentBulkEmail {
   templateName: string;
   defaultTemplateData?: string;
   entries: Array<{ to: string; replacementData?: string }>;
+  configurationSetName?: string;
+  emailTags?: Array<{ name: string; value: string }>;
 }
 
 export interface MockSesService extends SesService {
@@ -419,14 +423,29 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
       html: string,
       replyTo: string,
       listName: string,
-      topic: string
+      topic: string,
+      tracking?: {
+        configurationSetName?: string;
+        emailTags?: Array<{ name: string; value: string }>;
+      }
     ): Promise<string> {
+      const record: SentEmail = {
+        from,
+        to,
+        subject,
+        html,
+        replyTo,
+        listName,
+        topicName: topic,
+        configurationSetName: tracking?.configurationSetName,
+        emailTags: tracking?.emailTags,
+      };
       if (options?.sendEmailBehavior) {
         const result = await options.sendEmailBehavior(to);
-        sentEmails.push({ from, to, subject, html, replyTo, listName, topicName: topic });
+        sentEmails.push(record);
         return result;
       }
-      sentEmails.push({ from, to, subject, html, replyTo, listName, topicName: topic });
+      sentEmails.push(record);
       return `mock-message-id-${sentEmails.length}`;
     },
 
@@ -656,26 +675,26 @@ export function createMockSesService(options?: MockSesServiceOptions): MockSesSe
       templateName: string;
       defaultTemplateData?: string;
       entries: Array<{ to: string; replacementData?: string }>;
+      configurationSetName?: string;
+      emailTags?: Array<{ name: string; value: string }>;
     }): Promise<Array<{ status: string; messageId?: string; error?: string }>> {
-      if (options?.sendBulkEmailBehavior) {
-        const result = options.sendBulkEmailBehavior(bulkOptions.entries);
-        sentBulkEmails.push({
-          from: bulkOptions.from,
-          replyTo: bulkOptions.replyTo,
-          templateName: bulkOptions.templateName,
-          defaultTemplateData: bulkOptions.defaultTemplateData,
-          entries: bulkOptions.entries,
-        });
-        return result;
-      }
-
-      sentBulkEmails.push({
+      const record: SentBulkEmail = {
         from: bulkOptions.from,
         replyTo: bulkOptions.replyTo,
         templateName: bulkOptions.templateName,
         defaultTemplateData: bulkOptions.defaultTemplateData,
         entries: bulkOptions.entries,
-      });
+        configurationSetName: bulkOptions.configurationSetName,
+        emailTags: bulkOptions.emailTags,
+      };
+
+      if (options?.sendBulkEmailBehavior) {
+        const result = options.sendBulkEmailBehavior(bulkOptions.entries);
+        sentBulkEmails.push(record);
+        return result;
+      }
+
+      sentBulkEmails.push(record);
 
       return bulkOptions.entries.map((_e, i) => ({
         status: "SUCCESS",

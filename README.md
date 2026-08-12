@@ -28,9 +28,18 @@ Create a `newsletter.config.json` in your project root:
   "contactListName": "my-newsletter",
   "topicName": "weekly-updates",
   "fromAddress": "My Newsletter <newsletter@example.com>",
-  "replyTo": "reply@example.com"
+  "replyTo": "reply@example.com",
+  "configurationSetName": "newsletter-tracking"
 }
 ```
+
+`configurationSetName` is optional. When set, every send attaches that SES
+configuration set — which is what makes SES emit open and click events — plus
+per-issue message tags (`campaign=<html filename>`, `source=newsletter`) so
+those events can be attributed to a specific newsletter issue. Create the
+configuration set with `nori-newsletter config-sets create` and enable open
+tracking on it. When the field is absent, sends work exactly as before and the
+send commands print a warning that no open/click events will be emitted.
 
 See `newsletter.config.example.json` for a template.
 

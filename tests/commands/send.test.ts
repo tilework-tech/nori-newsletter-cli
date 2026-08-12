@@ -299,4 +299,66 @@ describe("send command", () => {
     expect(stdout).toContain("4242");
     expect(stdout).toContain(capturedLog);
   });
+  describe("SES tracking", () => {
+    const trackedConfig = { ...TEST_CONFIG, configurationSetName: "newsletter-tracking" };
+
+    it("attaches the configuration set and campaign/source tags when configured", async () => {
+      await runCommand(ses, ["contacts", "add", "alice@example.com"], trackedConfig);
+
+      const issuePath = join(
+        tempDir,
+        "2026-08-05-how-to-build-an-agent-to-automate-your-on-call.html"
+      );
+      writeFileSync(issuePath, sampleHtml);
+
+      const { exitCode, stderr } = await runCommand(
+        ses,
+        ["send", issuePath],
+        trackedConfig
+      );
+
+      expect(exitCode).toBe(0);
+      const sent = ses.getSentEmails()[0];
+      expect(sent.configurationSetName).toBe("newsletter-tracking");
+      expect(sent.emailTags).toEqual([
+        {
+          name: "campaign",
+          value: "2026-08-05-how-to-build-an-agent-to-automate-your-on-call",
+        },
+        { name: "source", value: "newsletter" },
+      ]);
+      expect(stderr).not.toContain("configurationSetName");
+    });
+
+    it("attaches neither config set nor tags, and warns once, when not configured", async () => {
+      await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+      await runCommand(ses, ["contacts", "add", "bob@example.com"]);
+
+      const { exitCode, stderr } = await runCommand(ses, ["send", htmlPath]);
+
+      expect(exitCode).toBe(0);
+      expect(ses.getSentEmailCount()).toBe(2);
+      for (const sent of ses.getSentEmails()) {
+        expect(sent.configurationSetName).toBeUndefined();
+        expect(sent.emailTags).toBeUndefined();
+      }
+      expect(stderr).toContain(
+        "Warning: no configurationSetName in newsletter.config.json"
+      );
+      // Once per run, not once per recipient.
+      expect(stderr.match(/no configurationSetName/g)?.length).toBe(1);
+    });
+
+    it("shows the campaign id in dry-run output", async () => {
+      await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+
+      const issuePath = join(tempDir, "2026-08-05-launch day.html");
+      writeFileSync(issuePath, sampleHtml);
+
+      const { stdout } = await runCommand(ses, ["send", issuePath, "--dry-run"]);
+
+      expect(stdout).toContain("Campaign: 2026-08-05-launch-day");
+      expect(ses.getSentEmailCount()).toBe(0);
+    });
+  });
 });
