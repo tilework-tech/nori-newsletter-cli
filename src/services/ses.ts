@@ -479,6 +479,10 @@ export function createSesService(client: SESv2Client): SesService {
         const response = await client.send(
           new ListContactsCommand({
             ContactListName: listName,
+            // ListContacts is limited to ~1 req/s. The small default page size
+            // turns a few-thousand-contact list into dozens of back-to-back
+            // calls that exhaust the client's retries with "Rate exceeded".
+            PageSize: 1000,
             Filter: {
               FilteredStatus: "OPT_IN",
               TopicFilter: {
