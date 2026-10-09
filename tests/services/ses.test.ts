@@ -143,3 +143,32 @@ describe("SesService send tracking", () => {
     expect("DefaultEmailTags" in input).toBe(false);
   });
 });
+
+describe("SesService.listContacts", () => {
+  it("requests the maximum page size so large lists stay under the ListContacts rate limit", async () => {
+    const client = {
+      send: vi
+        .fn()
+        .mockResolvedValueOnce({
+          Contacts: [{ EmailAddress: "a@example.com" }],
+          NextToken: "t1",
+        })
+        .mockResolvedValueOnce({
+          Contacts: [{ EmailAddress: "b@example.com", UnsubscribeAll: true }],
+        }),
+    };
+
+    const ses = createSesService(client as any);
+    const contacts = await ses.listContacts("my-list", "my-topic");
+
+    expect(contacts).toEqual([
+      { email: "a@example.com", unsubscribeAll: false },
+      { email: "b@example.com", unsubscribeAll: true },
+    ]);
+    expect(client.send).toHaveBeenCalledTimes(2);
+    for (const [cmd] of client.send.mock.calls) {
+      expect(cmd.input.PageSize).toBe(1000);
+    }
+    expect(client.send.mock.calls[1][0].input.NextToken).toBe("t1");
+  });
+});

@@ -136,7 +136,13 @@ export function createSendSafeCommand(
         try {
           [account, identity, contacts, suppressed] = await Promise.all([
             ses.getAccountInfo(),
-            ses.getIdentity(bareEmail),
+            // SES authorizes any address on a verified domain, so fall back to
+            // the domain identity when the address itself is not registered.
+            ses
+              .getIdentity(bareEmail)
+              .then(
+                (id) => id ?? ses.getIdentity(bareEmail.split("@")[1] ?? "")
+              ),
             ses.listContacts(config.contactListName, config.topicName),
             ses.listSuppressedDestinations(),
           ]);
@@ -173,7 +179,11 @@ export function createSendSafeCommand(
           );
           hasFailure = true;
         } else {
-          out.write(`[PASS] Identity: ${bareEmail} verified\n`);
+          out.write(
+            identity.name === bareEmail
+              ? `[PASS] Identity: ${bareEmail} verified\n`
+              : `[PASS] Identity: ${bareEmail} verified via domain ${identity.name}\n`
+          );
         }
 
         const suppressedSet = new Set(

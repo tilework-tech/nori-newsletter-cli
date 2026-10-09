@@ -128,6 +128,20 @@ describe("send-safe command", () => {
     expect(stdout).toMatch(/quota/i);
   });
 
+  it("passes the identity check when only the sender's domain is verified", async () => {
+    ses = createMockSesService({
+      seedIdentities: [{ name: "example.com" }],
+    });
+    await runCommand(ses, ["init"]);
+    await runCommand(ses, ["contacts", "add", "alice@example.com"]);
+
+    const { exitCode, stdout } = await runCommand(ses, ["send-safe", htmlPath]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("[PASS] Identity: test@example.com verified via domain example.com");
+    expect(ses.getSentEmailCount()).toBe(1);
+  });
+
   it("aborts when identity is not found", async () => {
     ses = createMockSesService();
     await runCommand(ses, ["init"]);
