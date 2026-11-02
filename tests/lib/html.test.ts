@@ -28,4 +28,16 @@ describe("extractSubject", () => {
 
     expect(extractSubject(html)).toBe("Nori Newsletter");
   });
+
+  it("decodes named and numeric character references, since a subject is plain text", () => {
+    const html = `<html><head><title>Agentics: It&rsquo;s R&amp;D &#8220;week&#x201D;&hellip;</title></head></html>`;
+
+    expect(extractSubject(html)).toBe("Agentics: It\u2019s R&D \u201cweek\u201d\u2026");
+  });
+
+  it("decodes a double-escaped reference only once, as a browser shows it", () => {
+    const html = `<html><head><title>It&amp;rsquo;s</title></head></html>`;
+
+    expect(extractSubject(html)).toBe("It&rsquo;s");
+  });
 });
