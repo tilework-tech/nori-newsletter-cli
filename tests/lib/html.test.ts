@@ -28,4 +28,28 @@ describe("extractSubject", () => {
 
     expect(extractSubject(html)).toBe("Nori Newsletter");
   });
+
+  it("decodes named HTML entities so the subject is plain text", () => {
+    const html = `<html><head><title>Agentics: It&rsquo;s never been easier &mdash; &ldquo;Q&amp;A&rdquo;</title></head></html>`;
+
+    expect(extractSubject(html)).toBe("Agentics: It\u2019s never been easier \u2014 \u201cQ&A\u201d");
+  });
+
+  it("decodes decimal and hex numeric entities", () => {
+    const html = `<title>It&#8217;s &#x2014; &#39;done&#39;</title>`;
+
+    expect(extractSubject(html)).toBe("It\u2019s \u2014 'done'");
+  });
+
+  it("leaves unknown entities and bare ampersands as written", () => {
+    const html = `<title>R&D &notareal; &#xZZ;</title>`;
+
+    expect(extractSubject(html)).toBe("R&D &notareal; &#xZZ;");
+  });
+
+  it("collapses line breaks in a wrapped title onto one line", () => {
+    const html = `<title>Agentics:\n    a wrapped\ttitle</title>`;
+
+    expect(extractSubject(html)).toBe("Agentics: a wrapped title");
+  });
 });
